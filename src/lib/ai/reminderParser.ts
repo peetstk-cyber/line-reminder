@@ -59,6 +59,25 @@ export interface ReminderExtractionResult {
 }
 
 /**
+ * Normalize common Thai typing typos (e.g. โมข -> โมง, พรุ้งนี้/พุ่งนี้ -> พรุ่งนี้)
+ */
+export function normalizeThaiTypos(text: string): string {
+  return text
+    // พรุ่งนี้ typos
+    .replace(/(?:พรุ้งนี้|พุ่งนี้|พุ่งนี|พรุ่งนี|พรุ่งนี้[้่๊๋]+)/g, "พรุ่งนี้")
+    // โมง typos (โมข, โมว, โมฃ, โม่ง, โม้ง)
+    .replace(/โม[ขวฃ่ง้]/g, "โมง")
+    // ทุ่ม typos (ทุ้ม, ทุม, ทึ่ม)
+    .replace(/(?:ทุ้ม|ทุม(?!\w)|ทึ่ม)/g, "ทุ่ม")
+    // บ่าย typos
+    .replace(/บาย(?!\w)/g, "บ่าย")
+    // มะรืน typos
+    .replace(/มรืน|มะริน/g, "มะรืน")
+    // วันนี้ typos
+    .replace(/วันนี(?!้)/g, "วันนี้");
+}
+
+/**
  * Fast-path Thai Colloquial Reminder Parser (<1ms, 0 Quota, 100% Reliable)
  */
 export function parseThaiReminderFastPath(
@@ -66,7 +85,7 @@ export function parseThaiReminderFastPath(
   baseDate = new Date(),
   timezone = "Asia/Bangkok"
 ): AssistantResult | null {
-  let cleanText = text.trim();
+  let cleanText = normalizeThaiTypos(text.trim());
 
   // 1. Date extraction
   let dateOffset = 0; // 0 = today, 1 = tomorrow, 2 = day after tomorrow
@@ -237,6 +256,9 @@ export function parseThaiReminderFastPath(
   let taskTitle = cleanText
     .replace(/^(?:เตือน|ช่วยเตือน|เตือนว่า|ช่วยเตือนว่า|ตั้งเตือน|แจ้งเตือน)\s*/, "")
     .trim();
+  taskTitle = taskTitle
+    .replace(/^[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E\s]+|[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E\s]+$/g, "")
+    .trim();
   taskTitle = taskTitle.replace(/\s+/g, " ").trim();
 
   // If user only typed "พรุ่งนี้ 8 โมง" without a task, default taskTitle to "เตือนความจำ"
@@ -274,7 +296,7 @@ export async function parseAssistantIntent(
   userTimezone = "Asia/Bangkok",
   userHistory?: { role: "user" | "model"; text: string }[]
 ): Promise<AssistantResult> {
-  const normalized = userMessage.trim().toLowerCase();
+  const normalized = normalizeThaiTypos(userMessage.trim()).toLowerCase();
 
   // Fast-path keywords for instant response (<50ms) & saving AI quota
   if (
@@ -329,6 +351,12 @@ export async function parseAssistantIntent(
       type: "DEBT",
       debtAction: "LIST",
     };
+  }
+
+  // Fast-path Thai Colloquial Reminder Parser (<1ms, 0 Quota, 100% Reliable, Auto Typo Correction)
+  const thaiReminderFastPath = parseThaiReminderFastPath(userMessage, new Date(), userTimezone);
+  if (thaiReminderFastPath) {
+    return thaiReminderFastPath;
   }
 
   // Fast-path Multi-Line / Multi-Person Debt Detection
@@ -466,12 +494,6 @@ export async function parseAssistantIntent(
         debtItems: [item],
       };
     }
-  }
-
-  // Fast-path Thai Colloquial Reminder Parser (<1ms, 0 Quota, 100% Reliable)
-  const thaiReminderFastPath = parseThaiReminderFastPath(userMessage, new Date(), userTimezone);
-  if (thaiReminderFastPath) {
-    return thaiReminderFastPath;
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
