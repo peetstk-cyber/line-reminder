@@ -159,7 +159,7 @@ export const db = {
       SELECT r.*, u."lineUserId"
       FROM "reminders" r
       JOIN "users" u ON r."userId" = u."id"
-      WHERE r."status" = 'PENDING' AND r."remindAt" <= CURRENT_TIMESTAMP;
+      WHERE r."status" = 'PENDING' AND r."remindAt" <= CURRENT_TIMESTAMP + INTERVAL '45 seconds';
     `;
     return rows as (DbReminder & { lineUserId: string })[];
   },
