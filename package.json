@@ -5,7 +5,6 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
-    "postinstall": "prisma generate",
     "start": "next start",
     "lint": "next lint",
     "prisma:generate": "prisma generate",
@@ -13,14 +12,12 @@
     "prisma:migrate": "prisma migrate dev"
   },
   "dependencies": {
-    "@google/genai": "^2.18.0",
     "@google/generative-ai": "^0.24.1",
     "@line/bot-sdk": "^9.6.0",
     "@line/liff": "^2.26.0",
     "@neondatabase/serverless": "^1.1.0",
     "@prisma/client": "^5.22.0",
     "@types/pg": "^8.23.1",
-    "@types/ws": "^8.18.1",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "lucide-react": "^0.475.0",
@@ -28,7 +25,6 @@
     "pg": "^8.23.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "ws": "^8.21.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {
