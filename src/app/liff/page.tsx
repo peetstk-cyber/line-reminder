@@ -30,6 +30,7 @@ import {
   User,
 } from "lucide-react";
 import { PRESET_AVATARS, getAvatarInfo, PresetAvatar } from "@/lib/avatar";
+import { formatInTimeZone } from "date-fns-tz";
 
 interface ReminderItem {
   id: string;
@@ -120,7 +121,8 @@ export default function LiffDashboard() {
   // Manual Reminder Creator State
   const [isCreatingReminder, setIsCreatingReminder] = useState(false);
   const [newReminderTitle, setNewReminderTitle] = useState("");
-  const [newReminderDateTime, setNewReminderDateTime] = useState("");
+  const [newReminderDate, setNewReminderDate] = useState("");
+  const [newReminderTime, setNewReminderTime] = useState("");
   const [newReminderRecurrence, setNewReminderRecurrence] = useState<"NONE" | "DAILY" | "WEEKLY" | "MONTHLY">("NONE");
   const [newReminderAdvanceMinutes, setNewReminderAdvanceMinutes] = useState<number>(0);
   const [isSavingReminder, setIsSavingReminder] = useState(false);
@@ -128,7 +130,8 @@ export default function LiffDashboard() {
   // Edit Reminder Modal State
   const [editingReminder, setEditingReminder] = useState<ReminderItem | null>(null);
   const [editTitle, setEditTitle] = useState("");
-  const [editDateTime, setEditDateTime] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editTime, setEditTime] = useState("");
   const [editRecurrence, setEditRecurrence] = useState<"NONE" | "DAILY" | "WEEKLY" | "MONTHLY">("NONE");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
@@ -287,11 +290,11 @@ export default function LiffDashboard() {
   // Handle Create Manual Reminder
   async function handleCreateManualReminder(e: React.FormEvent) {
     e.preventDefault();
-    if (!newReminderTitle.trim() || !newReminderDateTime || isSavingReminder) return;
+    if (!newReminderTitle.trim() || !newReminderDate || !newReminderTime || isSavingReminder) return;
 
     try {
       setIsSavingReminder(true);
-      const selectedDate = new Date(newReminderDateTime);
+      const selectedDate = new Date(`${newReminderDate}T${newReminderTime}:00`);
       const triggerDate = new Date(selectedDate.getTime() - newReminderAdvanceMinutes * 60000);
 
       const res = await fetch("/api/reminders", {
@@ -308,7 +311,8 @@ export default function LiffDashboard() {
 
       if (res.ok) {
         setNewReminderTitle("");
-        setNewReminderDateTime("");
+        setNewReminderDate("");
+        setNewReminderTime("");
         setNewReminderRecurrence("NONE");
         setNewReminderAdvanceMinutes(0);
         setIsCreatingReminder(false);
@@ -362,16 +366,14 @@ export default function LiffDashboard() {
     setEditRecurrence(reminder.recurrence);
 
     const d = new Date(reminder.remindAt);
-    const localIso = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-      .toISOString()
-      .slice(0, 16);
-    setEditDateTime(localIso);
+    setEditDate(formatInTimeZone(d, "Asia/Bangkok", "yyyy-MM-dd"));
+    setEditTime(formatInTimeZone(d, "Asia/Bangkok", "HH:mm"));
   }
 
   // Save Edited Reminder
   async function handleSaveEditReminder(e: React.FormEvent) {
     e.preventDefault();
-    if (!editingReminder || !editTitle.trim() || isSavingEdit) return;
+    if (!editingReminder || !editTitle.trim() || !editDate || !editTime || isSavingEdit) return;
 
     try {
       setIsSavingEdit(true);
@@ -380,7 +382,7 @@ export default function LiffDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           taskTitle: editTitle.trim(),
-          remindAt: new Date(editDateTime).toISOString(),
+          remindAt: new Date(`${editDate}T${editTime}:00`).toISOString(),
           recurrence: editRecurrence,
         }),
       });
@@ -741,10 +743,8 @@ export default function LiffDashboard() {
                   setIsCreatingReminder(true);
                   const now = new Date();
                   now.setHours(now.getHours() + 1, 0, 0, 0);
-                  const localIso = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-                    .toISOString()
-                    .slice(0, 16);
-                  setNewReminderDateTime(localIso);
+                  setNewReminderDate(formatInTimeZone(now, "Asia/Bangkok", "yyyy-MM-dd"));
+                  setNewReminderTime(formatInTimeZone(now, "Asia/Bangkok", "HH:mm"));
                 }}
                 className="w-full bg-white hover:bg-sand-light/60 border border-sand rounded-2xl p-3.5 flex items-center justify-between text-mocha font-semibold text-sm shadow-sm transition-all group"
               >
@@ -789,21 +789,39 @@ export default function LiffDashboard() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-mocha-muted mb-1">
-                    วันและเวลาที่ต้องทำ *
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={newReminderDateTime}
-                    onChange={(e) => setNewReminderDateTime(e.target.value)}
-                    required
-                    className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-sm text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
-                  />
+                {/* Date & Time Pickers Side-by-Side (Mobile responsive, no overflow) */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="min-w-0">
+                    <label className="block text-xs font-semibold text-mocha-muted mb-1 flex items-center gap-1">
+                      <Calendar className="w-3.5 h-3.5 text-matcha-dark" />
+                      วันที่ *
+                    </label>
+                    <input
+                      type="date"
+                      value={newReminderDate}
+                      onChange={(e) => setNewReminderDate(e.target.value)}
+                      required
+                      className="w-full min-w-0 box-border bg-sand-light border border-sand rounded-xl px-2.5 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                    />
+                  </div>
+
+                  <div className="min-w-0">
+                    <label className="block text-xs font-semibold text-mocha-muted mb-1 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-matcha-dark" />
+                      เวลา *
+                    </label>
+                    <input
+                      type="time"
+                      value={newReminderTime}
+                      onChange={(e) => setNewReminderTime(e.target.value)}
+                      required
+                      className="w-full min-w-0 box-border bg-sand-light border border-sand rounded-xl px-2.5 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2.5">
-                  <div>
+                  <div className="min-w-0">
                     <label className="block text-xs font-semibold text-mocha-muted mb-1">
                       การเตือนซ้ำ
                     </label>
@@ -814,7 +832,7 @@ export default function LiffDashboard() {
                           e.target.value as "NONE" | "DAILY" | "WEEKLY" | "MONTHLY"
                         )
                       }
-                      className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                      className="w-full min-w-0 box-border bg-sand-light border border-sand rounded-xl px-2.5 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha truncate"
                     >
                       <option value="NONE">ไม่เตือนซ้ำ (ครั้งเดียว)</option>
                       <option value="DAILY">เตือนทุกวัน</option>
@@ -823,21 +841,21 @@ export default function LiffDashboard() {
                     </select>
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <label className="block text-xs font-semibold text-mocha-muted mb-1">
                       เตือนก่อนเวลา
                     </label>
                     <select
                       value={newReminderAdvanceMinutes}
                       onChange={(e) => setNewReminderAdvanceMinutes(parseInt(e.target.value, 10))}
-                      className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                      className="w-full min-w-0 box-border bg-sand-light border border-sand rounded-xl px-2.5 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha truncate"
                     >
                       <option value={0}>ตรงเวลาพอดี</option>
                       <option value={5}>เตือนก่อน 5 นาที</option>
                       <option value={10}>เตือนก่อน 10 นาที</option>
                       <option value={15}>เตือนก่อน 15 นาที</option>
                       <option value={30}>เตือนก่อน 30 นาที</option>
-                      <option value={60}>เตือนก่อน 1 ชั่วโมง</option>
+                      <option value={60}>เตือนก่อน 1 ชม.</option>
                       <option value={1440}>เตือนก่อน 1 วัน</option>
                     </select>
                   </div>
@@ -853,7 +871,7 @@ export default function LiffDashboard() {
                   </button>
                   <button
                     type="submit"
-                    disabled={isSavingReminder || !newReminderTitle.trim() || !newReminderDateTime}
+                    disabled={isSavingReminder || !newReminderTitle.trim() || !newReminderDate || !newReminderTime}
                     className="px-4 py-2 text-xs font-semibold bg-matcha-dark hover:bg-matcha text-white rounded-xl shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
                   >
                     {isSavingReminder && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
@@ -1646,17 +1664,35 @@ export default function LiffDashboard() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-mocha-muted mb-1">
-                  วันและเวลาแจ้งเตือน
-                </label>
-                <input
-                  type="datetime-local"
-                  value={editDateTime}
-                  onChange={(e) => setEditDateTime(e.target.value)}
-                  required
-                  className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-sm text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
-                />
+              {/* Date & Time Side-by-Side */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="min-w-0">
+                  <label className="block text-xs font-semibold text-mocha-muted mb-1 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-matcha-dark" />
+                    วันที่
+                  </label>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    required
+                    className="w-full min-w-0 box-border bg-sand-light border border-sand rounded-xl px-2.5 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                  />
+                </div>
+
+                <div className="min-w-0">
+                  <label className="block text-xs font-semibold text-mocha-muted mb-1 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-matcha-dark" />
+                    เวลา
+                  </label>
+                  <input
+                    type="time"
+                    value={editTime}
+                    onChange={(e) => setEditTime(e.target.value)}
+                    required
+                    className="w-full min-w-0 box-border bg-sand-light border border-sand rounded-xl px-2.5 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                  />
+                </div>
               </div>
 
               <div>
