@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
+    "postinstall": "prisma generate",
     "start": "next start",
     "lint": "next lint",
     "prisma:generate": "prisma generate",
@@ -17,8 +18,6 @@
     "@line/bot-sdk": "^9.6.0",
     "@line/liff": "^2.26.0",
     "@neondatabase/serverless": "^1.1.0",
-    "@prisma/adapter-neon": "^7.9.1",
-    "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^5.22.0",
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.1",
