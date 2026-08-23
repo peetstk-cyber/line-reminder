@@ -21,7 +21,15 @@ import {
   FileText,
   Pin,
   ListTodo,
+  Coins,
+  Wallet,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Smile,
+  Image as ImageIcon,
+  User,
 } from "lucide-react";
+import { PRESET_AVATARS, getAvatarInfo, PresetAvatar } from "@/lib/avatar";
 
 interface ReminderItem {
   id: string;
@@ -52,6 +60,44 @@ interface Note {
   updatedAt: string;
 }
 
+interface DebtItem {
+  id: string;
+  userId: string;
+  personName: string;
+  amount: number;
+  type: "LENT" | "BORROWED";
+  description: string | null;
+  status: "PENDING" | "SETTLED";
+  settledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PersonProfileItem {
+  id: string;
+  userId: string;
+  name: string;
+  avatarType: "PRESET_CHARACTER" | "CUSTOM_IMAGE";
+  avatarValue: string;
+  color: string;
+}
+
+interface PersonDebtGroup {
+  personName: string;
+  profile: PersonProfileItem | null;
+  totalLent: number;
+  totalBorrowed: number;
+  netAmount: number;
+  items: DebtItem[];
+}
+
+interface DebtSummary {
+  totalReceivable: number;
+  totalPayable: number;
+  netBalance: number;
+  people: PersonDebtGroup[];
+}
+
 interface Stats {
   todayCount: number;
   totalPending: number;
@@ -59,7 +105,7 @@ interface Stats {
 }
 
 export default function LiffDashboard() {
-  const [activeMainTab, setActiveMainTab] = useState<"reminders" | "notes">("reminders");
+  const [activeMainTab, setActiveMainTab] = useState<"reminders" | "notes" | "debt">("reminders");
   const [lineUserId, setLineUserId] = useState<string>("");
   const [displayName, setDisplayName] = useState<string>("ผู้ใช้งาน LINE");
   const [pictureUrl, setPictureUrl] = useState<string | null>(null);
@@ -90,6 +136,30 @@ export default function LiffDashboard() {
   const [newNoteItemsText, setNewNoteItemsText] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [inlineNewItem, setInlineNewItem] = useState<{ [noteId: string]: string }>({});
+
+  // Debts State
+  const [debtSummary, setDebtSummary] = useState<DebtSummary>({
+    totalReceivable: 0,
+    totalPayable: 0,
+    netBalance: 0,
+    people: [],
+  });
+  const [debts, setDebts] = useState<DebtItem[]>([]);
+  const [personProfiles, setPersonProfiles] = useState<PersonProfileItem[]>([]);
+  const [activeDebtFilter, setActiveDebtFilter] = useState<"ALL" | "RECEIVABLE" | "PAYABLE">("ALL");
+  const [isCreatingDebt, setIsCreatingDebt] = useState(false);
+  const [newDebtPerson, setNewDebtPerson] = useState("");
+  const [newDebtAmount, setNewDebtAmount] = useState("");
+  const [newDebtType, setNewDebtType] = useState<"LENT" | "BORROWED">("LENT");
+  const [newDebtDesc, setNewDebtDesc] = useState("");
+  const [isSavingDebt, setIsSavingDebt] = useState(false);
+
+  // Avatar Customizer Modal State
+  const [customizingPerson, setCustomizingPerson] = useState<string | null>(null);
+  const [avatarCustomTab, setAvatarCustomTab] = useState<"preset" | "image">("preset");
+  const [selectedPresetId, setSelectedPresetId] = useState<string>("cat");
+  const [customPhotoUrl, setCustomPhotoUrl] = useState<string>("");
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   // Initialize LIFF & Check URL Params
   useEffect(() => {
@@ -178,15 +248,36 @@ export default function LiffDashboard() {
     }
   }, [lineUserId, activeNoteCategory]);
 
+  // Fetch Debts
+  const fetchDebts = useCallback(async () => {
+    if (!lineUserId) return;
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/debts?lineUserId=${lineUserId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.summary) setDebtSummary(data.summary);
+        if (data.debts) setDebts(data.debts);
+        if (data.profiles) setPersonProfiles(data.profiles);
+      }
+    } catch (err) {
+      console.error("Error fetching debts:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [lineUserId]);
+
   useEffect(() => {
     if (isLiffReady && lineUserId) {
       if (activeMainTab === "reminders") {
         fetchReminders(activeReminderFilter);
-      } else {
+      } else if (activeMainTab === "notes") {
         fetchNotes(activeNoteCategory);
+      } else if (activeMainTab === "debt") {
+        fetchDebts();
       }
     }
-  }, [isLiffReady, lineUserId, activeMainTab, activeReminderFilter, activeNoteCategory, fetchReminders, fetchNotes]);
+  }, [isLiffReady, lineUserId, activeMainTab, activeReminderFilter, activeNoteCategory, fetchReminders, fetchNotes, fetchDebts]);
 
   // Handle Quick Add Reminder
   async function handleQuickAddReminder(e: React.FormEvent) {
@@ -228,36 +319,41 @@ export default function LiffDashboard() {
       }
     } catch (err) {
       console.error("Quick add failed:", err);
-      setReminderAiMessage({ type: "error", text: "เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ" });
+      setReminderAiMessage({
+        type: "error",
+        text: "ไม่สามารถเชื่อมต่อระบบได้ กรุณาลองใหม่อีกครั้ง",
+      });
     } finally {
       setIsSubmittingReminder(false);
     }
   }
 
-  // Toggle Reminder Complete / Pending
-  async function handleToggleReminderStatus(item: ReminderItem) {
-    const nextStatus = item.status === "COMPLETED" ? "PENDING" : "COMPLETED";
+  // Toggle Reminder Completed / Pending
+  async function handleToggleReminder(id: string, currentStatus: string) {
+    const newStatus = currentStatus === "PENDING" ? "COMPLETED" : "PENDING";
+    setReminders((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, status: newStatus as any } : r))
+    );
+
     try {
-      setReminders((prev) =>
-        prev.map((r) => (r.id === item.id ? { ...r, status: nextStatus } : r))
-      );
-      await fetch(`/api/reminders/${item.id}`, {
+      await fetch(`/api/reminders/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
+        body: JSON.stringify({ status: newStatus }),
       });
       fetchReminders(activeReminderFilter);
     } catch (err) {
-      console.error("Failed to toggle status:", err);
+      console.error("Failed to toggle reminder:", err);
       fetchReminders(activeReminderFilter);
     }
   }
 
   // Delete Reminder
   async function handleDeleteReminder(id: string) {
-    if (!confirm("คุณต้องการลบรายการแจ้งเตือนนี้ใช่หรือไม่?")) return;
+    if (!confirm("คุณต้องการลบการแจ้งเตือนนี้ใช่หรือไม่?")) return;
+
+    setReminders((prev) => prev.filter((r) => r.id !== id));
     try {
-      setReminders((prev) => prev.filter((r) => r.id !== id));
       await fetch(`/api/reminders/${id}`, { method: "DELETE" });
       fetchReminders(activeReminderFilter);
     } catch (err) {
@@ -266,21 +362,23 @@ export default function LiffDashboard() {
     }
   }
 
-  // Edit Reminder Modal
-  function openEditModal(item: ReminderItem) {
-    setEditingReminder(item);
-    setEditTitle(item.taskTitle);
-    setEditRecurrence(item.recurrence);
-    const date = new Date(item.remindAt);
-    const localIso = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  // Edit Reminder Click
+  function handleEditClick(reminder: ReminderItem) {
+    setEditingReminder(reminder);
+    setEditTitle(reminder.taskTitle);
+    setEditRecurrence(reminder.recurrence);
+
+    const d = new Date(reminder.remindAt);
+    const localIso = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
       .toISOString()
       .slice(0, 16);
     setEditDateTime(localIso);
   }
 
+  // Save Edited Reminder
   async function handleSaveEditReminder(e: React.FormEvent) {
     e.preventDefault();
-    if (!editingReminder || isSavingEdit) return;
+    if (!editingReminder || !editTitle.trim() || isSavingEdit) return;
 
     try {
       setIsSavingEdit(true);
@@ -379,7 +477,7 @@ export default function LiffDashboard() {
     const targetNote = notes.find((n) => n.id === noteId);
     if (!targetNote) return;
 
-    const newItem: NoteItem = {
+    const newItem = {
       id: "item-" + Math.random().toString(36).substring(2, 9),
       text,
       completed: false,
@@ -390,6 +488,7 @@ export default function LiffDashboard() {
     setNotes((prev) =>
       prev.map((n) => (n.id === noteId ? { ...n, items: updatedItems } : n))
     );
+
     setInlineNewItem((prev) => ({ ...prev, [noteId]: "" }));
 
     try {
@@ -417,6 +516,118 @@ export default function LiffDashboard() {
     }
   }
 
+  // ==================== DEBTS ACTIONS ====================
+  // Create New Debt
+  async function handleCreateDebt(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newDebtPerson.trim() || !newDebtAmount || isSavingDebt) return;
+
+    try {
+      setIsSavingDebt(true);
+      const res = await fetch("/api/debts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lineUserId,
+          personName: newDebtPerson.trim(),
+          amount: parseFloat(newDebtAmount),
+          type: newDebtType,
+          description: newDebtDesc.trim() || undefined,
+        }),
+      });
+
+      if (res.ok) {
+        setNewDebtPerson("");
+        setNewDebtAmount("");
+        setNewDebtDesc("");
+        setIsCreatingDebt(false);
+        fetchDebts();
+      }
+    } catch (err) {
+      console.error("Failed to create debt:", err);
+    } finally {
+      setIsSavingDebt(false);
+    }
+  }
+
+  // Settle Debt
+  async function handleSettleDebt(debtId: string) {
+    try {
+      await fetch(`/api/debts/${debtId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "SETTLE" }),
+      });
+      fetchDebts();
+    } catch (err) {
+      console.error("Failed to settle debt:", err);
+      fetchDebts();
+    }
+  }
+
+  // Delete Debt
+  async function handleDeleteDebt(debtId: string) {
+    if (!confirm("คุณต้องการลบรายการนี้ใช่หรือไม่?")) return;
+    try {
+      await fetch(`/api/debts/${debtId}`, { method: "DELETE" });
+      fetchDebts();
+    } catch (err) {
+      console.error("Failed to delete debt:", err);
+      fetchDebts();
+    }
+  }
+
+  // Open Avatar Modal
+  function handleOpenAvatarModal(personName: string) {
+    const existingProfile = personProfiles.find(
+      (p) => p.name.toLowerCase() === personName.toLowerCase()
+    );
+
+    setCustomizingPerson(personName);
+    if (existingProfile?.avatarType === "CUSTOM_IMAGE") {
+      setAvatarCustomTab("image");
+      setCustomPhotoUrl(existingProfile.avatarValue || "");
+      setSelectedPresetId("cat");
+    } else {
+      setAvatarCustomTab("preset");
+      setSelectedPresetId(existingProfile?.avatarValue || "cat");
+      setCustomPhotoUrl("");
+    }
+  }
+
+  // Save Avatar Profile
+  async function handleSaveAvatarProfile(e: React.FormEvent) {
+    e.preventDefault();
+    if (!customizingPerson || isSavingProfile) return;
+
+    try {
+      setIsSavingProfile(true);
+      const isCustom = avatarCustomTab === "image" && customPhotoUrl.trim().length > 0;
+      const avatarType = isCustom ? "CUSTOM_IMAGE" : "PRESET_CHARACTER";
+      const avatarValue = isCustom ? customPhotoUrl.trim() : selectedPresetId;
+
+      const res = await fetch("/api/debts/profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lineUserId,
+          personName: customizingPerson,
+          avatarType,
+          avatarValue,
+        }),
+      });
+
+      if (res.ok) {
+        setCustomizingPerson(null);
+        fetchDebts();
+      }
+    } catch (err) {
+      console.error("Failed to save avatar profile:", err);
+    } finally {
+      setIsSavingProfile(false);
+    }
+  }
+
   const recurrenceLabel: Record<string, string> = {
     NONE: "ไม่เตือนซ้ำ",
     DAILY: "ทุกวัน",
@@ -429,6 +640,13 @@ export default function LiffDashboard() {
     TODO: { label: "สิ่งที่ต้องทำ", emoji: "📌", bg: "bg-amber-50 border-amber-200", text: "text-amber-800" },
     GENERAL: { label: "ทั่วไป", emoji: "📝", bg: "bg-blue-50 border-blue-200", text: "text-blue-800" },
   };
+
+  // Filtered people for Debt tab
+  const filteredPeople = debtSummary.people.filter((p) => {
+    if (activeDebtFilter === "RECEIVABLE") return p.netAmount > 0;
+    if (activeDebtFilter === "PAYABLE") return p.netAmount < 0;
+    return true;
+  });
 
   return (
     <div className="min-h-screen bg-sand-light text-mocha font-sans pb-20">
@@ -462,20 +680,20 @@ export default function LiffDashboard() {
           </div>
         </div>
 
-        {/* Main Tab Bar Switcher (Reminders vs Notes) */}
-        <div className="max-w-xl mx-auto mt-3 grid grid-cols-2 p-1 bg-sand/60 rounded-xl">
+        {/* 3-Tab Selector */}
+        <div className="max-w-xl mx-auto mt-3 grid grid-cols-3 gap-1 bg-sand/60 p-1 rounded-xl border border-sand">
           <button
             onClick={() => setActiveMainTab("reminders")}
-            className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+            className={`py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
               activeMainTab === "reminders"
                 ? "bg-white text-matcha-dark shadow-sm"
                 : "text-mocha-muted hover:text-mocha"
             }`}
           >
-            <Bell className="w-4 h-4" />
+            <Bell className="w-3.5 h-3.5" />
             <span>เตือนความจำ</span>
             {stats.todayCount > 0 && (
-              <span className="bg-matcha-dark text-white text-[10px] px-1.5 py-0.2 rounded-full">
+              <span className="bg-matcha-dark text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
                 {stats.todayCount}
               </span>
             )}
@@ -483,17 +701,34 @@ export default function LiffDashboard() {
 
           <button
             onClick={() => setActiveMainTab("notes")}
-            className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+            className={`py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
               activeMainTab === "notes"
                 ? "bg-white text-matcha-dark shadow-sm"
                 : "text-mocha-muted hover:text-mocha"
             }`}
           >
-            <CheckSquare className="w-4 h-4" />
+            <CheckSquare className="w-3.5 h-3.5" />
             <span>โน้ต</span>
             {notes.length > 0 && (
               <span className="bg-sand text-mocha-muted text-[10px] px-1.5 py-0.2 rounded-full font-bold">
                 {notes.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveMainTab("debt")}
+            className={`py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+              activeMainTab === "debt"
+                ? "bg-white text-matcha-dark shadow-sm"
+                : "text-mocha-muted hover:text-mocha"
+            }`}
+          >
+            <Coins className="w-3.5 h-3.5" />
+            <span>หนี้สิน</span>
+            {debtSummary.people.length > 0 && (
+              <span className="bg-amber-100 text-amber-900 text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+                {debtSummary.people.length}
               </span>
             )}
           </button>
@@ -980,6 +1215,330 @@ export default function LiffDashboard() {
             </section>
           </>
         )}
+
+        {/* ========================================================================= */}
+        {/* SECTION 3: DEBTS TAB */}
+        {/* ========================================================================= */}
+        {activeMainTab === "debt" && (
+          <>
+            {/* Overview Summary Cards */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-emerald-50/80 border border-emerald-200/80 rounded-2xl p-3.5 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-800 flex items-center gap-1">
+                    <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-600" />
+                    รอรับคืน (เราให้ยืม)
+                  </span>
+                </div>
+                <p className="text-xl font-extrabold text-emerald-700 mt-1">
+                  ฿{debtSummary.totalReceivable.toLocaleString("th-TH")}
+                </p>
+              </div>
+
+              <div className="bg-rose-50/80 border border-rose-200/80 rounded-2xl p-3.5 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-rose-800 flex items-center gap-1">
+                    <ArrowUpRight className="w-3.5 h-3.5 text-rose-600" />
+                    ต้องจ่ายคืน (เรายืมเขา)
+                  </span>
+                </div>
+                <p className="text-xl font-extrabold text-rose-700 mt-1">
+                  ฿{debtSummary.totalPayable.toLocaleString("th-TH")}
+                </p>
+              </div>
+            </div>
+
+            {/* Create Debt Action Button / Form */}
+            {!isCreatingDebt ? (
+              <button
+                onClick={() => setIsCreatingDebt(true)}
+                className="w-full bg-white hover:bg-sand-light/60 border border-sand rounded-2xl p-3.5 flex items-center justify-between text-mocha font-semibold text-sm shadow-sm transition-all group"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <Plus className="w-5 h-5" />
+                  </div>
+                  <span>บันทึกรายการหนี้ใหม่</span>
+                </div>
+                <span className="text-xs text-mocha-muted font-normal">กดเพื่อบันทึก 💰</span>
+              </button>
+            ) : (
+              <form
+                onSubmit={handleCreateDebt}
+                className="bg-white rounded-2xl p-4 shadow-md border border-matcha-light space-y-3 animate-in fade-in zoom-in-95 duration-150"
+              >
+                <div className="flex items-center justify-between border-b border-sand pb-2">
+                  <h3 className="text-sm font-bold text-mocha flex items-center gap-1.5">
+                    <Coins className="w-4 h-4 text-matcha-dark" />
+                    บันทึกรายการหนี้ใหม่
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setIsCreatingDebt(false)}
+                    className="text-mocha-muted hover:text-mocha p-1 rounded-lg hover:bg-sand"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Debt Type Selector */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewDebtType("LENT")}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                      newDebtType === "LENT"
+                        ? "bg-emerald-50 border-emerald-300 text-emerald-800 shadow-sm"
+                        : "bg-sand-light border-sand text-mocha-muted"
+                    }`}
+                  >
+                    🟢 เราให้ยืม (รอรับคืน)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewDebtType("BORROWED")}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                      newDebtType === "BORROWED"
+                        ? "bg-rose-50 border-rose-300 text-rose-800 shadow-sm"
+                        : "bg-sand-light border-sand text-mocha-muted"
+                    }`}
+                  >
+                    🔴 เรายืมเขา (ต้องจ่ายคืน)
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-semibold text-mocha-muted mb-1">
+                      ชื่อคน / เพื่อน *
+                    </label>
+                    <input
+                      type="text"
+                      value={newDebtPerson}
+                      onChange={(e) => setNewDebtPerson(e.target.value)}
+                      placeholder="เช่น ปิ่น, ก้อง, แฮม"
+                      required
+                      className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-sm text-mocha placeholder:text-mocha-muted/60 focus:outline-none focus:ring-2 focus:ring-matcha"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-mocha-muted mb-1">
+                      จำนวนเงิน (บาท) *
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={newDebtAmount}
+                      onChange={(e) => setNewDebtAmount(e.target.value)}
+                      placeholder="เช่น 50, 100"
+                      required
+                      className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-sm text-mocha placeholder:text-mocha-muted/60 focus:outline-none focus:ring-2 focus:ring-matcha"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-mocha-muted mb-1">
+                    หมายเหตุ (ไม่บังคับ)
+                  </label>
+                  <input
+                    type="text"
+                    value={newDebtDesc}
+                    onChange={(e) => setNewDebtDesc(e.target.value)}
+                    placeholder="เช่น ค่ากาแฟ, ค่าข้าว, ค่าของขวัญ"
+                    className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-sm text-mocha placeholder:text-mocha-muted/60 focus:outline-none focus:ring-2 focus:ring-matcha"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsCreatingDebt(false)}
+                    className="px-4 py-2 text-xs font-semibold text-mocha-muted hover:bg-sand rounded-xl transition-colors"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingDebt || !newDebtPerson.trim() || !newDebtAmount}
+                    className="px-4 py-2 text-xs font-semibold bg-matcha-dark hover:bg-matcha text-white rounded-xl shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isSavingDebt && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>บันทึกหนี้</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Filter Chips */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+              {[
+                { key: "ALL", label: `ทั้งหมด (${debtSummary.people.length})` },
+                { key: "RECEIVABLE", label: "🟢 รอรับคืน" },
+                { key: "PAYABLE", label: "🔴 ต้องจ่ายคืน" },
+              ].map((f) => (
+                <button
+                  key={f.key}
+                  onClick={() => setActiveDebtFilter(f.key as any)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all border ${
+                    activeDebtFilter === f.key
+                      ? "bg-matcha-dark text-white border-matcha-dark shadow-sm"
+                      : "bg-white text-mocha-muted border-sand hover:border-matcha-light"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* List of People Groups */}
+            <div className="space-y-3">
+              {filteredPeople.length === 0 ? (
+                <div className="text-center py-12 bg-white rounded-2xl border border-sand p-6">
+                  <p className="text-3xl mb-2">🎉</p>
+                  <p className="text-sm font-bold text-mocha">ไม่มีรายการหนี้สินคงค้าง</p>
+                  <p className="text-xs text-mocha-muted mt-1">
+                    พิมพ์บอกบอทได้เลย เช่น &quot;ปิ่น 50 ค่ากาแฟ&quot; หรือ &quot;เรายืมแฮม 60&quot;
+                  </p>
+                </div>
+              ) : (
+                filteredPeople.map((person) => {
+                  const avatar = getAvatarInfo(person.personName, person.profile);
+                  const isPositive = person.netAmount > 0;
+                  const isZero = person.netAmount === 0;
+
+                  return (
+                    <div
+                      key={person.personName}
+                      className="bg-white rounded-2xl p-4 shadow-sm border border-sand space-y-3"
+                    >
+                      {/* Person Header */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {/* Interactive Avatar */}
+                          <div
+                            onClick={() => handleOpenAvatarModal(person.personName)}
+                            className="relative cursor-pointer group"
+                            title="กดเพื่อเปลี่ยนตัวละคร / ใส่รูปหน้าจริง"
+                          >
+                            <div
+                              style={{ backgroundColor: avatar.bg }}
+                              className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl shadow-inner border border-black/5 overflow-hidden transition-transform group-hover:scale-105"
+                            >
+                              {avatar.isCustomImage && avatar.imageUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={avatar.imageUrl}
+                                  alt={person.personName}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <span>{avatar.emoji}</span>
+                              )}
+                            </div>
+                            <div className="absolute -bottom-1 -right-1 bg-white border border-sand rounded-full p-0.5 shadow-sm text-mocha-muted">
+                              <Pencil className="w-3 h-3" />
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <h4 className="text-base font-bold text-mocha">
+                                {person.personName}
+                              </h4>
+                              <span className="text-[10px] text-mocha-muted bg-sand/60 px-1.5 py-0.5 rounded-md">
+                                {avatar.characterName}
+                              </span>
+                            </div>
+                            <p
+                              className={`text-xs font-bold mt-0.5 ${
+                                isZero
+                                  ? "text-mocha-muted"
+                                  : isPositive
+                                  ? "text-emerald-700"
+                                  : "text-rose-700"
+                              }`}
+                            >
+                              {isZero
+                                ? "ยอดหักลบพอดี"
+                                : isPositive
+                                ? `ติดเราสุทธิ ฿${person.netAmount.toLocaleString("th-TH")}`
+                                : `เราติดเขาสุทธิ ฿${Math.abs(person.netAmount).toLocaleString("th-TH")}`}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Quick Settle All Button */}
+                        <button
+                          onClick={() => {
+                            person.items.forEach((item) => handleSettleDebt(item.id));
+                          }}
+                          className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-semibold flex items-center gap-1 transition-all"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>เคลียร์ทั้งหมด</span>
+                        </button>
+                      </div>
+
+                      {/* Items List */}
+                      <div className="divide-y divide-sand/50 bg-sand-light/40 rounded-xl p-2">
+                        {person.items.map((item) => {
+                          const isLent = item.type === "LENT";
+                          return (
+                            <div
+                              key={item.id}
+                              className="py-2 px-1 flex items-center justify-between text-xs"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${
+                                    isLent
+                                      ? "bg-emerald-100 text-emerald-800"
+                                      : "bg-rose-100 text-rose-800"
+                                  }`}
+                                >
+                                  {isLent ? "ให้ยืม" : "ยืมเขา"}
+                                </span>
+                                <span className="text-mocha font-medium">
+                                  {item.description || "ยืมเงิน"}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-2.5">
+                                <span
+                                  className={`font-bold ${
+                                    isLent ? "text-emerald-700" : "text-rose-700"
+                                  }`}
+                                >
+                                  {isLent ? "+" : "-"}฿{item.amount.toLocaleString("th-TH")}
+                                </span>
+                                <button
+                                  onClick={() => handleSettleDebt(item.id)}
+                                  className="text-emerald-600 hover:text-emerald-800 p-1 hover:bg-emerald-50 rounded-lg transition-colors"
+                                  title="เคลียร์รายการนี้"
+                                >
+                                  <CheckCircle2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteDebt(item.id)}
+                                  className="text-mocha-muted/60 hover:text-rose-600 p-1 hover:bg-rose-50 rounded-lg transition-colors"
+                                  title="ลบรายการ"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </>
+        )}
       </main>
 
       {/* Edit Reminder Modal */}
@@ -1067,7 +1626,142 @@ export default function LiffDashboard() {
           </div>
         </div>
       )}
+
+      {/* Avatar Customizer Modal */}
+      {customizingPerson && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-sand animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-sand">
+              <h2 className="text-base font-bold text-mocha flex items-center gap-2">
+                <Smile className="w-4 h-4 text-matcha-dark" />
+                เลือกตัวละครคุณ {customizingPerson}
+              </h2>
+              <button
+                onClick={() => setCustomizingPerson(null)}
+                className="text-mocha-muted hover:text-mocha p-1 rounded-lg hover:bg-sand-light"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Tabs: Preset Characters vs Custom Photo */}
+            <div className="mt-3 grid grid-cols-2 gap-1 bg-sand/60 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setAvatarCustomTab("preset")}
+                className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 ${
+                  avatarCustomTab === "preset"
+                    ? "bg-white text-matcha-dark shadow-sm"
+                    : "text-mocha-muted"
+                }`}
+              >
+                <Smile className="w-3.5 h-3.5" />
+                <span>ตัวละครการ์ตูน</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAvatarCustomTab("image")}
+                className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 ${
+                  avatarCustomTab === "image"
+                    ? "bg-white text-matcha-dark shadow-sm"
+                    : "text-mocha-muted"
+                }`}
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+                <span>รูปหน้าจริง (URL)</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAvatarProfile} className="mt-4 space-y-4">
+              {avatarCustomTab === "preset" ? (
+                <div>
+                  <label className="block text-xs font-semibold text-mocha-muted mb-2">
+                    เลือกตัวละครที่ต้องการ:
+                  </label>
+                  <div className="grid grid-cols-4 gap-2.5 max-h-56 overflow-y-auto p-1">
+                    {PRESET_AVATARS.map((preset) => {
+                      const isSelected = selectedPresetId === preset.id;
+                      return (
+                        <button
+                          type="button"
+                          key={preset.id}
+                          onClick={() => setSelectedPresetId(preset.id)}
+                          style={{ backgroundColor: preset.bg }}
+                          className={`p-2.5 rounded-2xl flex flex-col items-center justify-center border-2 transition-all group ${
+                            isSelected
+                              ? "border-matcha-dark scale-105 shadow-md ring-2 ring-matcha/30"
+                              : "border-transparent hover:border-sand hover:scale-102"
+                          }`}
+                        >
+                          <span className="text-2xl">{preset.emoji}</span>
+                          <span className="text-[10px] font-bold text-mocha mt-1 truncate max-w-full">
+                            {preset.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-mocha-muted mb-1">
+                      วางลิงก์รูปภาพใบหน้าจริง (Image URL):
+                    </label>
+                    <input
+                      type="url"
+                      value={customPhotoUrl}
+                      onChange={(e) => setCustomPhotoUrl(e.target.value)}
+                      placeholder="https://example.com/photo.jpg"
+                      className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-sm text-mocha placeholder:text-mocha-muted/60 focus:outline-none focus:ring-2 focus:ring-matcha"
+                    />
+                  </div>
+
+                  {/* Photo Preview */}
+                  {customPhotoUrl && (
+                    <div className="flex items-center gap-3 bg-sand-light/60 p-3 rounded-xl border border-sand">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={customPhotoUrl}
+                        alt="Preview"
+                        className="w-12 h-12 rounded-full object-cover border-2 border-matcha-light"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = "none";
+                        }}
+                      />
+                      <div>
+                        <p className="text-xs font-bold text-mocha">ตัวอย่างรูปภาพ</p>
+                        <p className="text-[10px] text-mocha-muted">จะแสดงเป็น Avatar ของ {customizingPerson}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-sand">
+                <button
+                  type="button"
+                  onClick={() => setCustomizingPerson(null)}
+                  className="px-4 py-2 text-xs font-semibold text-mocha-muted hover:bg-sand rounded-xl transition-colors"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingProfile}
+                  className="px-4 py-2 text-xs font-semibold bg-matcha-dark hover:bg-matcha text-white rounded-xl shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isSavingProfile && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>บันทึกตัวละคร</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 

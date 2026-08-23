@@ -1,5 +1,432 @@
 import { messagingApi } from "@line/bot-sdk";
-import { DbReminder, DbNote } from "../db";
+import { DbReminder, DbNote, DbDebt, DbPersonProfile } from "../db";
+import { getAvatarInfo } from "../avatar";
+
+/**
+ * สร้าง Flex Message สำหรับรายการหนี้ที่บันทึกใหม่ (Debt Transaction Card)
+ */
+export function createDebtSuccessCard(data: {
+  debt: DbDebt;
+  profile?: DbPersonProfile | null;
+}): messagingApi.FlexMessage {
+  const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
+  const liffUrl = liffId ? `https://liff.line.me/${liffId}?tab=debt` : `https://line.me`;
+
+  const { debt, profile } = data;
+  const avatar = getAvatarInfo(debt.personName, profile);
+  const isLent = debt.type === "LENT";
+
+  const typeColor = isLent ? "#2E7D32" : "#C62828";
+  const typeBg = isLent ? "#E8F5E9" : "#FFEBEE";
+  const typeText = isLent ? "🟢 เราให้ยืม (รอรับคืน)" : "🔴 เรายืมเขา (ต้องจ่ายคืน)";
+
+  const bubble: messagingApi.FlexBubble = {
+    type: "bubble",
+    size: "mega",
+    header: {
+      type: "box",
+      layout: "horizontal",
+      backgroundColor: "#FAF7F2",
+      paddingAll: "16px",
+      alignItems: "center",
+      contents: [
+        {
+          type: "box",
+          layout: "vertical",
+          width: "48px",
+          height: "48px",
+          cornerRadius: "24px",
+          backgroundColor: avatar.bg,
+          justifyContent: "center",
+          alignItems: "center",
+          contents: avatar.isCustomImage && avatar.imageUrl
+            ? [
+                {
+                  type: "image",
+                  url: avatar.imageUrl,
+                  size: "full",
+                  aspectMode: "cover",
+                },
+              ]
+            : [
+                {
+                  type: "text",
+                  text: avatar.emoji,
+                  size: "xl",
+                  align: "center",
+                },
+              ],
+        },
+        {
+          type: "box",
+          layout: "vertical",
+          margin: "md",
+          contents: [
+            {
+              type: "text",
+              text: debt.personName,
+              weight: "bold",
+              size: "md",
+              color: "#2C221E",
+            },
+            {
+              type: "box",
+              layout: "baseline",
+              contents: [
+                {
+                  type: "text",
+                  text: typeText,
+                  size: "xxs",
+                  color: typeColor,
+                  weight: "bold",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    body: {
+      type: "box",
+      layout: "vertical",
+      backgroundColor: "#FFFFFF",
+      paddingAll: "16px",
+      spacing: "sm",
+      contents: [
+        {
+          type: "box",
+          layout: "horizontal",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          contents: [
+            {
+              type: "text",
+              text: "ยอดเงิน",
+              size: "sm",
+              color: "#766E65",
+            },
+            {
+              type: "text",
+              text: `฿${debt.amount.toLocaleString("th-TH")}`,
+              size: "xl",
+              weight: "bold",
+              color: typeColor,
+              align: "end",
+            },
+          ],
+        },
+        {
+          type: "separator",
+          color: "#EFEBE4",
+          margin: "md",
+        },
+        {
+          type: "box",
+          layout: "horizontal",
+          margin: "md",
+          contents: [
+            {
+              type: "text",
+              text: "หมายเหตุ",
+              size: "xs",
+              color: "#766E65",
+              flex: 3,
+            },
+            {
+              type: "text",
+              text: debt.description || "ยืมเงินทั่วไป",
+              size: "xs",
+              color: "#2C221E",
+              align: "end",
+              wrap: true,
+              flex: 7,
+            },
+          ],
+        },
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "vertical",
+      backgroundColor: "#FAF7F2",
+      paddingAll: "12px",
+      spacing: "sm",
+      contents: [
+        {
+          type: "button",
+          style: "primary",
+          color: "#3B5B3E",
+          height: "sm",
+          action: {
+            type: "postback",
+            label: "✓ เคลียร์หนี้รายการนี้",
+            data: `action=settle_debt&id=${debt.id}&name=${encodeURIComponent(debt.personName)}`,
+            displayText: `เคลียร์หนี้ ${debt.personName} ฿${debt.amount} แล้ว`,
+          },
+        },
+        {
+          type: "button",
+          style: "link",
+          height: "sm",
+          color: "#766E65",
+          action: {
+            type: "uri",
+            label: "📱 ดูบัญชีหนี้สินทั้งหมด",
+            uri: liffUrl,
+          },
+        },
+      ],
+    },
+  };
+
+  return {
+    type: "flex",
+    altText: `💰 บันทึกหนี้: ${debt.personName} ฿${debt.amount}`,
+    contents: bubble,
+  };
+}
+
+/**
+ * สร้าง Flex Message สรุปยอดหนี้ทั้งหมดแยกตามบุคคล (Debt Overview Card)
+ */
+export function createDebtSummaryCard(data: {
+  totalReceivable: number;
+  totalPayable: number;
+  netBalance: number;
+  people: {
+    personName: string;
+    profile: DbPersonProfile | null;
+    totalLent: number;
+    totalBorrowed: number;
+    netAmount: number;
+    items: DbDebt[];
+  }[];
+}): messagingApi.FlexMessage {
+  const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
+  const liffUrl = liffId ? `https://liff.line.me/${liffId}?tab=debt` : `https://line.me`;
+
+  const { totalReceivable, totalPayable, people } = data;
+
+  const peopleBoxes: messagingApi.FlexComponent[] = [];
+
+  if (people.length === 0) {
+    peopleBoxes.push({
+      type: "text",
+      text: "🎉 ไม่มีหนี้สินค้างชำระ เคลียร์หมดแล้ว!",
+      size: "sm",
+      color: "#3B5B3E",
+      align: "center",
+      margin: "md",
+    });
+  } else {
+    people.slice(0, 6).forEach((p) => {
+      const avatar = getAvatarInfo(p.personName, p.profile);
+      const isPositive = p.netAmount > 0;
+      const isZero = p.netAmount === 0;
+
+      const badgeColor = isZero ? "#766E65" : isPositive ? "#2E7D32" : "#C62828";
+      const statusText = isZero
+        ? "หักลบยอดพอดี"
+        : isPositive
+        ? `ติดเรา ฿${p.netAmount.toLocaleString("th-TH")}`
+        : `เราติดเขา ฿${Math.abs(p.netAmount).toLocaleString("th-TH")}`;
+
+      peopleBoxes.push({
+        type: "box",
+        layout: "horizontal",
+        alignItems: "center",
+        margin: "md",
+        contents: [
+          {
+            type: "box",
+            layout: "vertical",
+            width: "36px",
+            height: "36px",
+            cornerRadius: "18px",
+            backgroundColor: avatar.bg,
+            justifyContent: "center",
+            alignItems: "center",
+            contents: avatar.isCustomImage && avatar.imageUrl
+              ? [
+                  {
+                    type: "image",
+                    url: avatar.imageUrl,
+                    size: "full",
+                    aspectMode: "cover",
+                  },
+                ]
+              : [
+                  {
+                    type: "text",
+                    text: avatar.emoji,
+                    size: "md",
+                    align: "center",
+                  },
+                ],
+          },
+          {
+            type: "box",
+            layout: "vertical",
+            margin: "sm",
+            flex: 1,
+            contents: [
+              {
+                type: "text",
+                text: p.personName,
+                weight: "bold",
+                size: "sm",
+                color: "#2C221E",
+              },
+              {
+                type: "text",
+                text: statusText,
+                size: "xs",
+                color: badgeColor,
+                weight: "bold",
+              },
+            ],
+          },
+        ],
+      });
+    });
+
+    if (people.length > 6) {
+      peopleBoxes.push({
+        type: "text",
+        text: `...และอีก ${people.length - 6} คน`,
+        size: "xs",
+        color: "#766E65",
+        margin: "md",
+        align: "center",
+      });
+    }
+  }
+
+  const bubble: messagingApi.FlexBubble = {
+    type: "bubble",
+    size: "mega",
+    header: {
+      type: "box",
+      layout: "vertical",
+      backgroundColor: "#D8E8D4",
+      paddingAll: "16px",
+      contents: [
+        {
+          type: "text",
+          text: "💰 สรุปบัญชีหนี้สิน",
+          weight: "bold",
+          size: "lg",
+          color: "#2C221E",
+        },
+        {
+          type: "text",
+          text: `มีรายการค้างรวม ${people.length} คน`,
+          size: "xs",
+          color: "#766E65",
+          margin: "xs",
+        },
+      ],
+    },
+    body: {
+      type: "box",
+      layout: "vertical",
+      backgroundColor: "#FFFFFF",
+      paddingAll: "16px",
+      contents: [
+        // Summary Header Pills
+        {
+          type: "box",
+          layout: "horizontal",
+          spacing: "md",
+          contents: [
+            {
+              type: "box",
+              layout: "vertical",
+              backgroundColor: "#E8F5E9",
+              cornerRadius: "12px",
+              paddingAll: "10px",
+              flex: 1,
+              contents: [
+                {
+                  type: "text",
+                  text: "รอรับคืน 🟢",
+                  size: "xxs",
+                  color: "#2E7D32",
+                  weight: "bold",
+                },
+                {
+                  type: "text",
+                  text: `฿${totalReceivable.toLocaleString("th-TH")}`,
+                  size: "sm",
+                  weight: "bold",
+                  color: "#2E7D32",
+                  margin: "xs",
+                },
+              ],
+            },
+            {
+              type: "box",
+              layout: "vertical",
+              backgroundColor: "#FFEBEE",
+              cornerRadius: "12px",
+              paddingAll: "10px",
+              flex: 1,
+              contents: [
+                {
+                  type: "text",
+                  text: "ต้องจ่ายคืน 🔴",
+                  size: "xxs",
+                  color: "#C62828",
+                  weight: "bold",
+                },
+                {
+                  type: "text",
+                  text: `฿${totalPayable.toLocaleString("th-TH")}`,
+                  size: "sm",
+                  weight: "bold",
+                  color: "#C62828",
+                  margin: "xs",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          type: "separator",
+          color: "#EFEBE4",
+          margin: "lg",
+        },
+        // People List
+        ...peopleBoxes,
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "vertical",
+      backgroundColor: "#FAF7F2",
+      paddingAll: "12px",
+      contents: [
+        {
+          type: "button",
+          style: "primary",
+          color: "#3B5B3E",
+          height: "sm",
+          action: {
+            type: "uri",
+            label: "📱 จัดการหนี้ & เปลี่ยน Avatar",
+            uri: liffUrl,
+          },
+        },
+      ],
+    },
+  };
+
+  return {
+    type: "flex",
+    altText: `💰 สรุปบัญชีหนี้สิน: รอรับคืน ฿${totalReceivable} / ต้องจ่าย ฿${totalPayable}`,
+    contents: bubble,
+  };
+}
 
 /**
  * สร้าง Flex Message สรุปยามเช้า (Daily Morning Briefing - 06:00 น.)

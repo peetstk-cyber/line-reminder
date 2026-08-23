@@ -3,7 +3,7 @@ import { z } from "zod";
 import { formatInTimeZone } from "date-fns-tz";
 
 export const AssistantResultSchema = z.object({
-  type: z.enum(["REMINDER", "NOTE", "BRIEFING", "GENERAL_CHAT"]).describe("ประเภทของคำสั่ง"),
+  type: z.enum(["REMINDER", "NOTE", "DEBT", "BRIEFING", "GENERAL_CHAT"]).describe("ประเภทของคำสั่ง"),
   
   // REMINDER DETAILS
   reminderAction: z
@@ -25,6 +25,13 @@ export const AssistantResultSchema = z.object({
   noteItems: z.array(z.string()).nullish().describe("รายการย่อย เช่น ['metoprolol', 'metoclopramide'] หรือ ['น้ำ', 'ขนมปัง']"),
   noteCategory: z.enum(["SHOPPING", "TODO", "GENERAL"]).nullish(),
 
+  // DEBT DETAILS
+  debtAction: z.enum(["CREATE", "LIST", "SETTLE"]).nullish().describe("Action สำหรับจัดการหนี้"),
+  debtType: z.enum(["LENT", "BORROWED"]).nullish().describe("LENT = เราให้ยืม (เขาติดเรา), BORROWED = เรายืมเขา (เราติดเขา)"),
+  personName: z.string().nullish().describe("ชื่อคนที่ยืมหรือให้ยืม เช่น 'ปิ่น', 'ก้อง', 'แฮม'"),
+  amount: z.number().nullish().describe("จำนวนเงินบาท เช่น 50, 20, 60"),
+  debtDescription: z.string().nullish().describe("หมายเหตุ เช่น 'ค่ากาแฟ', 'ค่าข้าว'"),
+
   replyText: z.string().nullish().describe("ข้อความตอบกลับหรือคำถามเพิ่มเติมที่สุภาพและเป็นกันเอง"),
 });
 
@@ -42,7 +49,7 @@ export interface ReminderExtractionResult {
 }
 
 /**
- * วิเคราะห์ข้อความผู้ใช้ว่าเป็น Reminder, Note หรือ Chat ทั่วไป
+ * วิเคราะห์ข้อความผู้ใช้ว่าเป็น Reminder, Note, Debt, Briefing หรือ Chat ทั่วไป
  */
 export async function parseAssistantIntent(
   userMessage: string,
@@ -91,6 +98,21 @@ export async function parseAssistantIntent(
     };
   }
 
+  if (
+    normalized === "ใครติดตังค์เราบ้าง" ||
+    normalized === "ใครติดเงินเราบ้าง" ||
+    normalized === "หนี้ทั้งหมด" ||
+    normalized === "ยอดหนี้" ||
+    normalized === "ดูหนี้" ||
+    normalized === "บัญชีหนี้" ||
+    normalized === "เราเป็นหนี้ใครบ้าง"
+  ) {
+    return {
+      type: "DEBT",
+      debtAction: "LIST",
+    };
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not configured in environment variables");
@@ -107,37 +129,49 @@ export async function parseAssistantIntent(
   const currentISO = formatInTimeZone(now, userTimezone, "yyyy-MM-dd'T'HH:mm:ssXXX");
 
   const systemInstruction = `
-คุณคือ AI Personal Assistant ผู้ช่วยอัจฉริยะสำหรับผู้ใช้งานคนไทยใน LINE รองรับทั้งระบบเตือนความจำ (Reminders), ระบบจดโน้ต (Notes & Lists) และระบบสรุปยามเช้า (Morning Briefing)
-หน้าที่ของคุณคือวิเคราะห์ข้อความของผู้ใช้ แล้วแปลงเป็น JSON โครงสร้างตาม Schema อย่างแม่นยำ
+คุณคือ AI Personal Assistant ผู้ช่วยอัจฉริยะสำหรับคนไทยใน LINE รองรับ 4 ระบบหลัก:
+1. ระบบเตือนความจำ (Reminders)
+2. ระบบจดโน้ต & รายการ (Notes & Lists)
+3. ระบบจดหนี้สินและการยืมเงิน (Debt & Lending Tracker)
+4. ระบบสรุปยามเช้า (Morning Briefing)
 
 [บริบทวันและเวลาปัจจุบัน (Timezone: ${userTimezone}, UTC+7)]
 - วันเวลาปัจจุบัน: ${currentFormatted}
 - Current ISO: ${currentISO}
 
 [กฎการจำแนกประเภท (type)]:
-1. type: "NOTE" (การจดโน้ต / บันทึกรายการ / รายการซื้อของ / ยา / สิ่งที่ต้องทำ)
+
+1. type: "DEBT" (การจดหนี้ ยืมเงิน คืนเงิน เคลียร์หนี้)
+   - "เราให้ยืม / เขาติดเรา" (debtType: "LENT"):
+     * ตัวอย่าง: "ปิ่น 50 ค่ากาแฟ" -> type: "DEBT", debtAction: "CREATE", debtType: "LENT", personName: "ปิ่น", amount: 50, debtDescription: "ค่ากาแฟ"
+     * ตัวอย่าง: "ก้องยืม 20" -> type: "DEBT", debtAction: "CREATE", debtType: "LENT", personName: "ก้อง", amount: 20, debtDescription: "ยืมเงิน"
+     * ตัวอย่าง: "ออกให้แฮม 120 ค่าข้าว" -> type: "DEBT", debtAction: "CREATE", debtType: "LENT", personName: "แฮม", amount: 120, debtDescription: "ค่าข้าว"
+   - "เรายืมเขา / เราติดเขา" (debtType: "BORROWED"):
+     * ตัวอย่าง: "เรายืมแฮม 60" / "ยืมแฮม 60" / "ติดตังค์แฮม 60" -> type: "DEBT", debtAction: "CREATE", debtType: "BORROWED", personName: "แฮม", amount: 60, debtDescription: "ยืมเงิน"
+     * ตัวอย่าง: "ติดเงินปิ่น 100 ค่าแท็กซี่" -> type: "DEBT", debtAction: "CREATE", debtType: "BORROWED", personName: "ปิ่น", amount: 100, debtDescription: "ค่าแท็กซี่"
+   - "การเคลียร์หนี้ / คืนเงินแล้ว" (debtAction: "SETTLE"):
+     * ตัวอย่าง: "ปิ่นคืนแล้ว", "เคลียร์หนี้ปิ่น", "ปิ่นจ่ายแล้ว" -> type: "DEBT", debtAction: "SETTLE", personName: "ปิ่น"
+     * ตัวอย่าง: "คืนเงินก้องแล้ว", "เคลียร์หนี้ก้อง" -> type: "DEBT", debtAction: "SETTLE", personName: "ก้อง"
+   - "ดูรายการหนี้ทั้งหมด" (debtAction: "LIST"):
+     * ตัวอย่าง: "ใครติดตังค์เราบ้าง", "หนี้ทั้งหมด", "ยอดหนี้", "ดูหนี้", "สรุปหนี้" -> type: "DEBT", debtAction: "LIST"
+
+2. type: "NOTE" (การจดโน้ต / บันทึกรายการ / รายการซื้อของ / ยา / สิ่งที่ต้องทำ)
    - เมื่อมีคำว่า: "จดโน้ต", "จดโน๊ต", "โน้ต", "โน๊ต", "บันทึก", "ซื้อของ", "รายการ", "list" หรือรายการของสั้นๆ เช่น "นาฬิกา กล้อง กระดาษ"
    - ถ้าผู้ใช้พิมพ์รายการต่อท้าย เช่น "จดโน้ต นาฬิกา กล้อง กระดาษ" หรือ "นาฬิกา กล้อง กระดาษ"
      -> type: "NOTE", noteAction: "CREATE", noteItems: ["นาฬิกา", "กล้อง", "กระดาษ"], noteTitle: "โน้ตบันทึก", noteCategory: "GENERAL"
-   - ถ้าเป็นของกิน/ของสด/ของใช้ในบ้าน -> noteCategory: "SHOPPING", noteTitle: "รายการซื้อของ"
    - ถ้าผู้ใช้พูดว่า "ดูโน้ต", "ดูโน๊ต", "โน้ตทั้งหมด", "มีโน้ตอะไรบ้าง" -> type: "NOTE", noteAction: "LIST"
 
-2. type: "REMINDER" (การตั้งเตือนความจำที่มีกิจกรรมและเวลา)
+3. type: "REMINDER" (การตั้งเตือนความจำที่มีกิจกรรมและเวลา)
    - เมื่อมีคำบอกเวลา เช่น "พรุ่งนี้", "วันนี้", "สี่โมง", "16:00", "20.00", "2 ทุ่ม", "9 โมง", "อย่าลืม..."
    - ตัวอย่าง: "ไปเที่ยวพรุ่งนี้สี่โมง" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "ไปเที่ยว", displayDate: "พรุ่งนี้", displayTime: "16:00 น.", remindAtISO: (คำนวณ ISO วันพรุ่งนี้เวลา 16:00:00+07:00)
    - ตัวอย่าง: "เล่นเกม 20.00" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "เล่นเกม", displayDate: "วันนี้", displayTime: "20:00 น.", remindAtISO: (คำนวณ ISO วันนี้เวลา 20:00:00+07:00)
-   - ตัวอย่าง: "อย่าลืมกินยา 2 ทุ่ม" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "กินยา", displayDate: "วันนี้", displayTime: "20:00 น."
-   - การแปลงคำบอกเวลาไทย:
-     * "สี่โมง" / "สี่โมงเย็น" / "บ่าย 4" -> 16:00 น.
-     * "บ่าย 3" / "บ่ายสาม" -> 15:00 น., "บ่าย 2" -> 14:00 น., "บ่ายโมง" -> 13:00 น.
-     * "5 โมงเย็น" / "ห้าโมงเย็น" -> 17:00 น., "6 โมงเย็น" -> 18:00 น.
-     * "1 ทุ่ม" -> 19:00 น., "2 ทุ่ม" -> 20:00 น., "3 ทุ่ม" -> 21:00 น., "4 ทุ่ม" -> 22:00 น.
-     * "20.00", "20.00 น.", "20:00" -> 20:00 น.
+   - ตัวอย่าง: "ยกเลิกเตือน" -> type: "REMINDER", reminderAction: "CANCEL"
+   - ตัวอย่าง: "เตือนอะไรไว้บ้าง", "ดูรายการเตือน" -> type: "REMINDER", reminderAction: "LIST"
 
-3. type: "BRIEFING" (การขอสรุปยามเช้า / ภารกิจวันนี้)
+4. type: "BRIEFING" (การขอสรุปยามเช้า / ภารกิจวันนี้)
    - เมื่อผู้ใช้ถาม: "สรุปเช้า", "สรุปวันนี้", "วันนี้มีอะไรบ้าง", "เช้านี้มีอะไรบ้าง", "morning brief", "briefing", "สรุปงานวันนี้", "สรุปภารกิจ"
 
-4. type: "GENERAL_CHAT" (การสนทนาทักทายทั่วไป หรือคำถามทั่วไป)
+5. type: "GENERAL_CHAT" (การสนทนาทักทายทั่วไป หรือคำถามทั่วไป)
    - เช่น "สวัสดี", "ทำอะไรได้บ้าง", "ใครสร้างนาย"
    - replyText: ตอบรับอย่างสุภาพและเป็นมิตร พร้อมแนะนำตัวอย่างคำสั่งที่ทำได้
 `;
@@ -177,7 +211,7 @@ ${
               type: {
                 type: SchemaType.STRING,
                 format: "enum",
-                enum: ["REMINDER", "NOTE", "BRIEFING", "GENERAL_CHAT"],
+                enum: ["REMINDER", "NOTE", "DEBT", "BRIEFING", "GENERAL_CHAT"],
               },
               reminderAction: {
                 type: SchemaType.STRING,
@@ -213,6 +247,21 @@ ${
                 enum: ["SHOPPING", "TODO", "GENERAL"],
                 nullable: true,
               },
+              debtAction: {
+                type: SchemaType.STRING,
+                format: "enum",
+                enum: ["CREATE", "LIST", "SETTLE"],
+                nullable: true,
+              },
+              debtType: {
+                type: SchemaType.STRING,
+                format: "enum",
+                enum: ["LENT", "BORROWED"],
+                nullable: true,
+              },
+              personName: { type: SchemaType.STRING, nullable: true },
+              amount: { type: SchemaType.NUMBER, nullable: true },
+              debtDescription: { type: SchemaType.STRING, nullable: true },
               replyText: { type: SchemaType.STRING, nullable: true },
             },
             required: ["type"],

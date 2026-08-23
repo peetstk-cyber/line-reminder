@@ -48,10 +48,36 @@ export interface DbNote {
   user?: DbUser;
 }
 
+export interface DbDebt {
+  id: string;
+  userId: string;
+  personName: string;
+  amount: number;
+  type: "LENT" | "BORROWED";
+  description: string | null;
+  status: "PENDING" | "SETTLED";
+  settledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user?: DbUser;
+}
+
+export interface DbPersonProfile {
+  id: string;
+  userId: string;
+  name: string;
+  avatarType: "PRESET_CHARACTER" | "CUSTOM_IMAGE";
+  avatarValue: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const db = {
   async ensureTablesExist(): Promise<void> {
     try {
       const sql = getSql();
+      // 1. notes table
       await sql`
         CREATE TABLE IF NOT EXISTS "notes" (
           "id" TEXT PRIMARY KEY,
@@ -67,11 +93,48 @@ export const db = {
       await sql`
         CREATE INDEX IF NOT EXISTS "notes_userId_idx" ON "notes"("userId");
       `;
+
+      // 2. debts table
       await sql`
-        CREATE INDEX IF NOT EXISTS "notes_category_idx" ON "notes"("category");
+        CREATE TABLE IF NOT EXISTS "debts" (
+          "id" TEXT PRIMARY KEY,
+          "userId" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+          "personName" TEXT NOT NULL,
+          "amount" DOUBLE PRECISION NOT NULL,
+          "type" TEXT NOT NULL DEFAULT 'LENT',
+          "description" TEXT,
+          "status" TEXT NOT NULL DEFAULT 'PENDING',
+          "settledAt" TIMESTAMP(3),
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS "debts_userId_status_idx" ON "debts"("userId", "status");
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS "debts_userId_personName_idx" ON "debts"("userId", "personName");
+      `;
+
+      // 3. person_profiles table
+      await sql`
+        CREATE TABLE IF NOT EXISTS "person_profiles" (
+          "id" TEXT PRIMARY KEY,
+          "userId" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+          "name" TEXT NOT NULL,
+          "avatarType" TEXT NOT NULL DEFAULT 'PRESET_CHARACTER',
+          "avatarValue" TEXT NOT NULL DEFAULT 'cat',
+          "color" TEXT NOT NULL DEFAULT '#E8F0E6',
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "person_profiles_userId_name_unique" UNIQUE ("userId", "name")
+        );
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS "person_profiles_userId_idx" ON "person_profiles"("userId");
       `;
     } catch (err) {
-      console.error("Error ensuring notes table exists:", err);
+      console.error("Error ensuring tables exist:", err);
     }
   },
 
@@ -377,6 +440,200 @@ export const db = {
       pendingNotes,
     };
   },
+
+  // ===================== DEBT CRUD METHODS =====================
+  async createDebt(data: {
+    userId: string;
+    personName: string;
+    amount: number;
+    type: "LENT" | "BORROWED";
+    description?: string;
+  }): Promise<DbDebt> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    const rows = await sql`
+      INSERT INTO "debts" (
+        "id", "userId", "personName", "amount", "type", "description", "status"
+      )
+      VALUES (
+        gen_random_uuid()::text,
+        ${data.userId},
+        ${data.personName.trim()},
+        ${data.amount},
+        ${data.type},
+        ${data.description || null},
+        'PENDING'
+      )
+      RETURNING *;
+    `;
+    return rows[0] as DbDebt;
+  },
+
+  async findDebtsByUserId(userId: string, status?: "PENDING" | "SETTLED"): Promise<DbDebt[]> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    if (status) {
+      const rows = await sql`
+        SELECT * FROM "debts"
+        WHERE "userId" = ${userId} AND "status" = ${status}
+        ORDER BY "createdAt" DESC;
+      `;
+      return rows as DbDebt[];
+    }
+    const rows = await sql`
+      SELECT * FROM "debts"
+      WHERE "userId" = ${userId}
+      ORDER BY "status" ASC, "createdAt" DESC;
+    `;
+    return rows as DbDebt[];
+  },
+
+  async findDebtById(id: string): Promise<DbDebt | null> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    const rows = await sql`SELECT * FROM "debts" WHERE "id" = ${id} LIMIT 1;`;
+    return (rows[0] as DbDebt) || null;
+  },
+
+  async settleDebt(id: string): Promise<DbDebt | null> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    const rows = await sql`
+      UPDATE "debts"
+      SET "status" = 'SETTLED', "settledAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${id}
+      RETURNING *;
+    `;
+    return (rows[0] as DbDebt) || null;
+  },
+
+  async settleDebtsByPersonName(userId: string, personName: string): Promise<number> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    const rows = await sql`
+      UPDATE "debts"
+      SET "status" = 'SETTLED', "settledAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "userId" = ${userId} AND LOWER("personName") = LOWER(${personName.trim()}) AND "status" = 'PENDING'
+      RETURNING "id";
+    `;
+    return rows.length;
+  },
+
+  async deleteDebt(id: string): Promise<boolean> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    await sql`DELETE FROM "debts" WHERE "id" = ${id};`;
+    return true;
+  },
+
+  async findDebtSummary(userId: string) {
+    await this.ensureTablesExist();
+    const pendingDebts = await this.findDebtsByUserId(userId, "PENDING");
+    const profiles = await this.findPersonProfilesByUserId(userId);
+    const profileMap = new Map(profiles.map((p) => [p.name.toLowerCase(), p]));
+
+    let totalReceivable = 0; // เราเป็นเจ้าหนี้ (เขาติดเรา)
+    let totalPayable = 0;    // เราเป็นลูกหนี้ (เราติดเขา)
+
+    const personMap = new Map<
+      string,
+      {
+        personName: string;
+        profile: DbPersonProfile | null;
+        totalLent: number;
+        totalBorrowed: number;
+        netAmount: number; // >0 เขาติดเรา, <0 เราติดเขา
+        items: DbDebt[];
+      }
+    >();
+
+    for (const d of pendingDebts) {
+      const key = d.personName.trim().toLowerCase();
+      if (!personMap.has(key)) {
+        personMap.set(key, {
+          personName: d.personName.trim(),
+          profile: profileMap.get(key) || null,
+          totalLent: 0,
+          totalBorrowed: 0,
+          netAmount: 0,
+          items: [],
+        });
+      }
+      const entry = personMap.get(key)!;
+      entry.items.push(d);
+
+      if (d.type === "LENT") {
+        entry.totalLent += d.amount;
+        entry.netAmount += d.amount;
+        totalReceivable += d.amount;
+      } else {
+        entry.totalBorrowed += d.amount;
+        entry.netAmount -= d.amount;
+        totalPayable += d.amount;
+      }
+    }
+
+    return {
+      totalReceivable,
+      totalPayable,
+      netBalance: totalReceivable - totalPayable,
+      people: Array.from(personMap.values()),
+    };
+  },
+
+  // ===================== PERSON PROFILE METHODS =====================
+  async upsertPersonProfile(data: {
+    userId: string;
+    name: string;
+    avatarType?: "PRESET_CHARACTER" | "CUSTOM_IMAGE";
+    avatarValue?: string;
+    color?: string;
+  }): Promise<DbPersonProfile> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    const rows = await sql`
+      INSERT INTO "person_profiles" (
+        "id", "userId", "name", "avatarType", "avatarValue", "color"
+      )
+      VALUES (
+        gen_random_uuid()::text,
+        ${data.userId},
+        ${data.name.trim()},
+        ${data.avatarType || "PRESET_CHARACTER"},
+        ${data.avatarValue || "cat"},
+        ${data.color || "#E8F0E6"}
+      )
+      ON CONFLICT ("userId", "name") DO UPDATE SET
+        "avatarType" = COALESCE(EXCLUDED."avatarType", "person_profiles"."avatarType"),
+        "avatarValue" = COALESCE(EXCLUDED."avatarValue", "person_profiles"."avatarValue"),
+        "color" = COALESCE(EXCLUDED."color", "person_profiles"."color"),
+        "updatedAt" = CURRENT_TIMESTAMP
+      RETURNING *;
+    `;
+    return rows[0] as DbPersonProfile;
+  },
+
+  async findPersonProfilesByUserId(userId: string): Promise<DbPersonProfile[]> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    const rows = await sql`
+      SELECT * FROM "person_profiles"
+      WHERE "userId" = ${userId};
+    `;
+    return rows as DbPersonProfile[];
+  },
+
+  async getPersonProfile(userId: string, name: string): Promise<DbPersonProfile | null> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    const rows = await sql`
+      SELECT * FROM "person_profiles"
+      WHERE "userId" = ${userId} AND LOWER("name") = LOWER(${name.trim()})
+      LIMIT 1;
+    `;
+    return (rows[0] as DbPersonProfile) || null;
+  },
 };
+
 
 

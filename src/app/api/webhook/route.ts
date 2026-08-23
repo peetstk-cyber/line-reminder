@@ -8,6 +8,8 @@ import {
   createReminderSuccessCard,
   createNoteSuccessCard,
   createMorningBriefCard,
+  createDebtSuccessCard,
+  createDebtSummaryCard,
 } from "@/lib/line/flexTemplates";
 import { formatInTimeZone } from "date-fns-tz";
 import { neon } from "@neondatabase/serverless";
@@ -261,7 +263,132 @@ async function handleTextMessage(
   }
 
   // -------------------------------------------------------------
-  // CASE 2: จัดการ REMINDER (เตือนความจำ)
+  // CASE 2: จัดการ DEBT (จดหนี้สิน / ยืมเงิน / เคลียร์หนี้)
+  // -------------------------------------------------------------
+  if (assistant.type === "DEBT") {
+    // 1. สร้างรายการหนี้ใหม่ (CREATE)
+    if (assistant.debtAction === "CREATE" || (!assistant.debtAction && assistant.personName && assistant.amount)) {
+      if (!assistant.personName || !assistant.amount) {
+        await lineClient.replyMessage({
+          replyToken,
+          messages: [
+            {
+              type: "text",
+              text:
+                assistant.replyText ||
+                "ต้องการจดหนี้เรื่องอะไรครับ? เช่น 'ปิ่น 50 ค่ากาแฟ', 'ก้องยืม 20' หรือ 'เรายืมแฮม 60'",
+            },
+          ],
+        });
+        return;
+      }
+
+      let profile = await db.getPersonProfile(userId, assistant.personName);
+      if (!profile) {
+        profile = await db.upsertPersonProfile({
+          userId,
+          name: assistant.personName,
+        });
+      }
+
+      let debt;
+      try {
+        debt = await db.createDebt({
+          userId,
+          personName: assistant.personName,
+          amount: assistant.amount,
+          type: assistant.debtType || "LENT",
+          description: assistant.debtDescription || undefined,
+        });
+      } catch (dbErr) {
+        console.error("Failed to save debt in DB:", dbErr);
+        debt = {
+          id: "temp-debt-" + Date.now(),
+          userId,
+          personName: assistant.personName,
+          amount: assistant.amount,
+          type: (assistant.debtType || "LENT") as any,
+          description: assistant.debtDescription || null,
+          status: "PENDING" as const,
+          settledAt: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      try {
+        const flexCard = createDebtSuccessCard({ debt, profile });
+        await lineClient.replyMessage({
+          replyToken,
+          messages: [flexCard],
+        });
+      } catch (flexErr) {
+        console.error("Debt flex message failed, fallback to text:", flexErr);
+        const typeText = debt.type === "LENT" ? "ให้ยืม (รอรับคืน)" : "ยืมเขา (ต้องจ่ายคืน)";
+        await lineClient.replyMessage({
+          replyToken,
+          messages: [
+            {
+              type: "text",
+              text: `💰 บันทึกหนี้: ${debt.personName} ฿${debt.amount} [${typeText}] เรียบร้อยแล้วครับ!`,
+            },
+          ],
+        });
+      }
+      return;
+    }
+
+    // 2. ดูสรุปหนี้ทั้งหมด (LIST)
+    if (assistant.debtAction === "LIST") {
+      const summary = await db.findDebtSummary(userId);
+      try {
+        const summaryCard = createDebtSummaryCard(summary);
+        await lineClient.replyMessage({
+          replyToken,
+          messages: [summaryCard],
+        });
+      } catch (flexErr) {
+        console.error("Debt summary flex failed:", flexErr);
+        await lineClient.replyMessage({
+          replyToken,
+          messages: [
+            {
+              type: "text",
+              text: `💰 สรุปหนี้สินของคุณ:\n\n🟢 ยอดรอรับคืน: ฿${summary.totalReceivable}\n🔴 ยอดต้องจ่ายคืน: ฿${summary.totalPayable}\nมีรายการคงค้างทั้งหมด ${summary.people.length} คน`,
+            },
+          ],
+        });
+      }
+      return;
+    }
+
+    // 3. เคลียร์หนี้ (SETTLE)
+    if (assistant.debtAction === "SETTLE") {
+      if (assistant.personName) {
+        const settledCount = await db.settleDebtsByPersonName(userId, assistant.personName);
+        await lineClient.replyMessage({
+          replyToken,
+          messages: [
+            {
+              type: "text",
+              text: `🎉 เคลียร์หนี้ของ "${assistant.personName}" เรียบร้อยแล้วครับ (${settledCount} รายการ)`,
+            },
+          ],
+        });
+      } else {
+        const summary = await db.findDebtSummary(userId);
+        const summaryCard = createDebtSummaryCard(summary);
+        await lineClient.replyMessage({
+          replyToken,
+          messages: [summaryCard],
+        });
+      }
+      return;
+    }
+  }
+
+  // -------------------------------------------------------------
+  // CASE 3: จัดการ REMINDER (เตือนความจำ)
   // -------------------------------------------------------------
   if (assistant.type === "REMINDER") {
     switch (assistant.reminderAction) {
@@ -534,4 +661,33 @@ async function handlePostback(lineClient: ReturnType<typeof getLineMessagingClie
       console.error("Error snoozing reminder via postback:", err);
     }
   }
+
+  if (action === "settle_debt" && reminderId) {
+    try {
+      const debt = await db.settleDebt(reminderId);
+      const personName = data.get("name") || debt?.personName || "รายการนี้";
+
+      await lineClient.replyMessage({
+        replyToken,
+        messages: [
+          {
+            type: "text",
+            text: `🎉 เคลียร์หนี้ของ "${personName}" เรียบร้อยแล้วครับ!`,
+          },
+        ],
+      });
+    } catch (err) {
+      console.error("Error settling debt via postback:", err);
+      await lineClient.replyMessage({
+        replyToken,
+        messages: [
+          {
+            type: "text",
+            text: "ไม่พบรายการ หรือรายการนี้ถูกเคลียร์ไปแล้วครับ",
+          },
+        ],
+      });
+    }
+  }
 }
+

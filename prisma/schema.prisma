@@ -26,14 +26,26 @@ enum NoteCategory {
   GENERAL
 }
 
+enum DebtType {
+  LENT      // เราให้ยืม (เขาติดเรา)
+  BORROWED  // เรายืมเขา (เราติดเขา)
+}
+
+enum DebtStatus {
+  PENDING   // ยังไม่จ่าย
+  SETTLED   // เคลียร์แล้ว
+}
+
 model User {
-  id          String     @id @default(cuid())
-  lineUserId  String     @unique
-  displayName String?
-  pictureUrl  String?
-  createdAt   DateTime   @default(now())
-  reminders   Reminder[]
-  notes       Note[]
+  id             String          @id @default(cuid())
+  lineUserId     String          @unique
+  displayName    String?
+  pictureUrl     String?
+  createdAt      DateTime        @default(now())
+  reminders      Reminder[]
+  notes          Note[]
+  debts          Debt[]
+  personProfiles PersonProfile[]
 
   @@map("users")
 }
@@ -83,4 +95,39 @@ model NotificationLog {
   @@index([reminderId])
   @@map("notification_logs")
 }
+
+model Debt {
+  id          String     @id @default(cuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  personName  String
+  amount      Float
+  type        DebtType   @default(LENT)
+  description String?
+  status      DebtStatus @default(PENDING)
+  settledAt   DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([userId, status])
+  @@index([userId, personName])
+  @@map("debts")
+}
+
+model PersonProfile {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  avatarType  String   @default("PRESET_CHARACTER") // PRESET_CHARACTER | CUSTOM_IMAGE
+  avatarValue String   @default("cat")              // preset key (fox, cat, bear, ...) or image URL
+  color       String   @default("#E8F0E6")          // Pastel hex color
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("person_profiles")
+}
+
 
