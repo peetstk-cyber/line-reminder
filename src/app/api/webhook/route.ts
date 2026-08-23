@@ -316,21 +316,31 @@ async function handleTextMessage(
         };
       }
 
+      const isLent = debt.type === "LENT";
+      const actionText = isLent ? "ยืมเงินคุณ (รอรับคืน)" : "คุณยืมเงินเขา (ต้องจ่ายคืน)";
+      const noteText = debt.description && debt.description !== "ยืมเงิน" ? ` (${debt.description})` : "";
+      const textMsg = `💰 บันทึกหนี้เรียบร้อยครับ!\n👤 ${debt.personName}: ${actionText} ฿${debt.amount.toLocaleString("th-TH")}${noteText}`;
+
       try {
         const flexCard = createDebtSuccessCard({ debt, profile });
-        await lineClient.replyMessage({
-          replyToken,
-          messages: [flexCard],
-        });
-      } catch (flexErr) {
-        console.error("Debt flex message failed, fallback to text:", flexErr);
-        const typeText = debt.type === "LENT" ? "ให้ยืม (รอรับคืน)" : "ยืมเขา (ต้องจ่ายคืน)";
         await lineClient.replyMessage({
           replyToken,
           messages: [
             {
               type: "text",
-              text: `💰 บันทึกหนี้: ${debt.personName} ฿${debt.amount} [${typeText}] เรียบร้อยแล้วครับ!`,
+              text: textMsg,
+            },
+            flexCard,
+          ],
+        });
+      } catch (flexErr) {
+        console.error("Debt flex message failed, fallback to text:", flexErr);
+        await lineClient.replyMessage({
+          replyToken,
+          messages: [
+            {
+              type: "text",
+              text: textMsg,
             },
           ],
         });
