@@ -1,0 +1,62 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum ReminderStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum Recurrence {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model User {
+  id          String     @id @default(cuid())
+  lineUserId  String     @unique
+  displayName String?
+  pictureUrl  String?
+  createdAt   DateTime   @default(now())
+  reminders   Reminder[]
+
+  @@map("users")
+}
+
+model Reminder {
+  id               String            @id @default(cuid())
+  userId           String
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskTitle        String
+  remindAt         DateTime
+  displayDate      String?
+  displayTime      String?
+  status           ReminderStatus    @default(PENDING)
+  recurrence       Recurrence        @default(NONE)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  notificationLogs NotificationLog[]
+
+  @@index([userId])
+  @@index([remindAt, status])
+  @@map("reminders")
+}
+
+model NotificationLog {
+  id         String   @id @default(cuid())
+  reminderId String
+  reminder   Reminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+  sentAt     DateTime @default(now())
+  status     String   // e.g. SUCCESS, FAILED
+
+  @@index([reminderId])
+  @@map("notification_logs")
+}
