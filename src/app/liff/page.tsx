@@ -789,22 +789,23 @@ export default function LiffDashboard() {
                   />
                 </div>
 
-                {/* Date & Time Pickers Side-by-Side (Mobile responsive, no overflow) */}
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="min-w-0">
-                    <label className="block text-xs font-semibold text-mocha-muted mb-1 flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5 text-matcha-dark" />
-                      วันที่ *
-                    </label>
-                    <input
-                      type="date"
-                      value={newReminderDate}
-                      onChange={(e) => setNewReminderDate(e.target.value)}
-                      required
-                      className="w-full min-w-0 box-border bg-sand-light border border-sand rounded-xl px-2.5 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
-                    />
-                  </div>
+                {/* Date Picker (Full Width - 100% fits iOS Thai Date rendering without overflow) */}
+                <div>
+                  <label className="block text-xs font-semibold text-mocha-muted mb-1 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-matcha-dark" />
+                    วันที่ *
+                  </label>
+                  <input
+                    type="date"
+                    value={newReminderDate}
+                    onChange={(e) => setNewReminderDate(e.target.value)}
+                    required
+                    className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2.5 text-sm text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                  />
+                </div>
 
+                {/* Time & Advance Alert Side-by-Side (Short values fit easily) */}
+                <div className="grid grid-cols-2 gap-2.5">
                   <div className="min-w-0">
                     <label className="block text-xs font-semibold text-mocha-muted mb-1 flex items-center gap-1">
                       <Clock className="w-3.5 h-3.5 text-matcha-dark" />
@@ -815,30 +816,8 @@ export default function LiffDashboard() {
                       value={newReminderTime}
                       onChange={(e) => setNewReminderTime(e.target.value)}
                       required
-                      className="w-full min-w-0 box-border bg-sand-light border border-sand rounded-xl px-2.5 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                      className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
                     />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="min-w-0">
-                    <label className="block text-xs font-semibold text-mocha-muted mb-1">
-                      การเตือนซ้ำ
-                    </label>
-                    <select
-                      value={newReminderRecurrence}
-                      onChange={(e) =>
-                        setNewReminderRecurrence(
-                          e.target.value as "NONE" | "DAILY" | "WEEKLY" | "MONTHLY"
-                        )
-                      }
-                      className="w-full min-w-0 box-border bg-sand-light border border-sand rounded-xl px-2.5 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha truncate"
-                    >
-                      <option value="NONE">ไม่เตือนซ้ำ (ครั้งเดียว)</option>
-                      <option value="DAILY">เตือนทุกวัน</option>
-                      <option value="WEEKLY">เตือนทุกสัปดาห์</option>
-                      <option value="MONTHLY">เตือนทุกเดือน</option>
-                    </select>
                   </div>
 
                   <div className="min-w-0">
@@ -848,7 +827,7 @@ export default function LiffDashboard() {
                     <select
                       value={newReminderAdvanceMinutes}
                       onChange={(e) => setNewReminderAdvanceMinutes(parseInt(e.target.value, 10))}
-                      className="w-full min-w-0 box-border bg-sand-light border border-sand rounded-xl px-2.5 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha truncate"
+                      className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha truncate"
                     >
                       <option value={0}>ตรงเวลาพอดี</option>
                       <option value={5}>เตือนก่อน 5 นาที</option>
@@ -859,6 +838,27 @@ export default function LiffDashboard() {
                       <option value={1440}>เตือนก่อน 1 วัน</option>
                     </select>
                   </div>
+                </div>
+
+                {/* Recurrence Dropdown (Full Width) */}
+                <div>
+                  <label className="block text-xs font-semibold text-mocha-muted mb-1">
+                    การเตือนซ้ำ
+                  </label>
+                  <select
+                    value={newReminderRecurrence}
+                    onChange={(e) =>
+                      setNewReminderRecurrence(
+                        e.target.value as "NONE" | "DAILY" | "WEEKLY" | "MONTHLY"
+                      )
+                    }
+                    className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha truncate"
+                  >
+                    <option value="NONE">ไม่เตือนซ้ำ (ครั้งเดียว)</option>
+                    <option value="DAILY">เตือนทุกวัน</option>
+                    <option value="WEEKLY">เตือนทุกสัปดาห์</option>
+                    <option value="MONTHLY">เตือนทุกเดือน</option>
+                  </select>
                 </div>
 
                 <div className="flex items-center justify-end gap-2 pt-1">
@@ -1664,22 +1664,23 @@ export default function LiffDashboard() {
                 />
               </div>
 
-              {/* Date & Time Side-by-Side */}
-              <div className="grid grid-cols-2 gap-2.5">
-                <div className="min-w-0">
-                  <label className="block text-xs font-semibold text-mocha-muted mb-1 flex items-center gap-1">
-                    <Calendar className="w-3.5 h-3.5 text-matcha-dark" />
-                    วันที่
-                  </label>
-                  <input
-                    type="date"
-                    value={editDate}
-                    onChange={(e) => setEditDate(e.target.value)}
-                    required
-                    className="w-full min-w-0 box-border bg-sand-light border border-sand rounded-xl px-2.5 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
-                  />
-                </div>
+              {/* Date Picker (Full Width - 100% fits iOS Thai Date rendering without overflow) */}
+              <div>
+                <label className="block text-xs font-semibold text-mocha-muted mb-1 flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-matcha-dark" />
+                  วันที่
+                </label>
+                <input
+                  type="date"
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                  required
+                  className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2.5 text-sm text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                />
+              </div>
 
+              {/* Time & Recurrence Side-by-Side */}
+              <div className="grid grid-cols-2 gap-2.5">
                 <div className="min-w-0">
                   <label className="block text-xs font-semibold text-mocha-muted mb-1 flex items-center gap-1">
                     <Clock className="w-3.5 h-3.5 text-matcha-dark" />
@@ -1690,29 +1691,29 @@ export default function LiffDashboard() {
                     value={editTime}
                     onChange={(e) => setEditTime(e.target.value)}
                     required
-                    className="w-full min-w-0 box-border bg-sand-light border border-sand rounded-xl px-2.5 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                    className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
                   />
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-mocha-muted mb-1">
-                  การเตือนซ้ำ
-                </label>
-                <select
-                  value={editRecurrence}
-                  onChange={(e) =>
-                    setEditRecurrence(
-                      e.target.value as "NONE" | "DAILY" | "WEEKLY" | "MONTHLY"
-                    )
-                  }
-                  className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-sm text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
-                >
-                  <option value="NONE">ไม่เตือนซ้ำ (ครั้งเดียว)</option>
-                  <option value="DAILY">เตือนทุกวัน</option>
-                  <option value="WEEKLY">เตือนทุกสัปดาห์</option>
-                  <option value="MONTHLY">เตือนทุกเดือน</option>
-                </select>
+                <div className="min-w-0">
+                  <label className="block text-xs font-semibold text-mocha-muted mb-1">
+                    การเตือนซ้ำ
+                  </label>
+                  <select
+                    value={editRecurrence}
+                    onChange={(e) =>
+                      setEditRecurrence(
+                        e.target.value as "NONE" | "DAILY" | "WEEKLY" | "MONTHLY"
+                      )
+                    }
+                    className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha truncate"
+                  >
+                    <option value="NONE">ไม่เตือนซ้ำ</option>
+                    <option value="DAILY">เตือนทุกวัน</option>
+                    <option value="WEEKLY">เตือนทุกสัปดาห์</option>
+                    <option value="MONTHLY">เตือนทุกเดือน</option>
+                  </select>
+                </div>
               </div>
 
               <div className="pt-2 flex items-center justify-end gap-2">
