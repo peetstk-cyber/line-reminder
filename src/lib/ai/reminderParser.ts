@@ -113,6 +113,61 @@ export async function parseAssistantIntent(
     };
   }
 
+  // Fast-path Regex for Debt Patterns (<5ms instant response)
+  const trimmed = userMessage.trim();
+
+  // Pattern 1: เรายืม <คน> <เงิน> [เหตุผล]
+  const weBorrowMatch = trimmed.match(
+    /^(?:เรายืม|ผมยืม|ยืม|ติดเงิน|ติดตังค์)\s*([ก-๙a-zA-Z]+)\s+(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)?(?:\s+(.+))?$/
+  );
+  if (weBorrowMatch) {
+    return {
+      type: "DEBT",
+      debtAction: "CREATE",
+      debtType: "BORROWED",
+      personName: weBorrowMatch[1],
+      amount: parseFloat(weBorrowMatch[2]),
+      debtDescription: weBorrowMatch[3] || "ยืมเงิน",
+    };
+  }
+
+  // Pattern 2: <คน>ยืม <เงิน> [เหตุผล]
+  const theyBorrowMatch = trimmed.match(
+    /^([ก-๙a-zA-Z]+)\s*ยืม\s*(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)?(?:\s+(.+))?$/
+  );
+  if (theyBorrowMatch) {
+    return {
+      type: "DEBT",
+      debtAction: "CREATE",
+      debtType: "LENT",
+      personName: theyBorrowMatch[1],
+      amount: parseFloat(theyBorrowMatch[2]),
+      debtDescription: theyBorrowMatch[3] || "ยืมเงิน",
+    };
+  }
+
+  // Pattern 3: <คน> <เงิน> [บาท] [เหตุผล]
+  const quickDebtMatch = trimmed.match(
+    /^([ก-๙a-zA-Z]+)\s+(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)?(?:\s+(.+))?$/
+  );
+  if (quickDebtMatch) {
+    const name = quickDebtMatch[1];
+    const excludedKeywords = [
+      "เตือน", "โน้ต", "โน๊ต", "ประชุม", "นัด", "ซื้อ", "ส่ง", "โทร",
+      "กิน", "ทำ", "วิ่ง", "นอน", "ตื่น", "อ่าน", "เรียน", "วันนี้", "พรุ่งนี้"
+    ];
+    if (!excludedKeywords.includes(name)) {
+      return {
+        type: "DEBT",
+        debtAction: "CREATE",
+        debtType: "LENT",
+        personName: name,
+        amount: parseFloat(quickDebtMatch[2]),
+        debtDescription: quickDebtMatch[3] || "ยืมเงิน",
+      };
+    }
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not configured in environment variables");
@@ -139,11 +194,25 @@ export async function parseAssistantIntent(
 - วันเวลาปัจจุบัน: ${currentFormatted}
 - Current ISO: ${currentISO}
 
+[กฎการแปลงเวลาภาษาไทย (Thai Colloquial Time Conversion)]:
+- "ทุ่ม" (กลางคืน): ทุ่มนึง/หนึ่งทุ่ม = 19:00, สองทุ่ม = 20:00, สามทุ่ม = 21:00, สี่ทุ่ม = 22:00, ห้าทุ่ม = 23:00
+- "บ่าย": บ่ายโมง = 13:00, บ่ายสอง = 14:00, บ่ายสาม = 15:00, บ่ายสี่ = 16:00
+- "เย็น": สี่โมงเย็น = 16:00, ห้าโมงเย็น = 17:00, หกโมงเย็น = 18:00
+- "เช้า": หกโมงเช้า = 06:00, เจ็ดโมงเช้า = 07:00, แปดโมงเช้า = 08:00, เก้าโมง/9โมง = 09:00, สิบโมง = 10:00, สิบเอ็ดโมง = 11:00
+- "เที่ยง" = 12:00, "เที่ยงคืน" = 00:00
+- "ตี": ตีหนึ่ง = 01:00, ตีสอง = 02:00, ตีสาม = 03:00, ตีสี่ = 04:00, ตีห้า = 05:00
+
+[กฎสำคัญในการสกัด Reminder]:
+- เมื่อผู้ใช้พิมพ์กิจกรรมคู่กับเวลา เช่น "กินข้าวสามทุ่ม", "ประชุมบ่ายสอง", "กินยาสี่ทุ่ม", "วิ่งห้าโมงเย็น"
+  -> ต้องแยกกิจกรรมเป็น taskTitle (เช่น "กินข้าว", "ประชุม", "กินยา", "วิ่ง")
+  -> และแปลงเวลาเป็น remindAtISO ให้ถูกต้องตามบริบท (เช่น สามทุ่ม = 21:00 น. วันนี้)
+  -> ห้ามนำคำบอกเวลาไปปนใน taskTitle จนลืมใส่วันเวลา remindAtISO เด็ดขาด!
+
 [กฎการจำแนกประเภท (type)]:
 
 1. type: "DEBT" (การจดหนี้ ยืมเงิน คืนเงิน เคลียร์หนี้)
    - "เราให้ยืม / เขาติดเรา" (debtType: "LENT"):
-     * ตัวอย่าง: "ปิ่น 50 ค่ากาแฟ" -> type: "DEBT", debtAction: "CREATE", debtType: "LENT", personName: "ปิ่น", amount: 50, debtDescription: "ค่ากาแฟ"
+     * ตัวอย่าง: "ปิ่น 50 ค่ากาแฟ", "ปิ่น 50", "ปิ่น 20", "ปิ่น 50 บาท" -> type: "DEBT", debtAction: "CREATE", debtType: "LENT", personName: "ปิ่น", amount: 50/20, debtDescription: "ค่ากาแฟ" หรือ "ยืมเงิน"
      * ตัวอย่าง: "ก้องยืม 20" -> type: "DEBT", debtAction: "CREATE", debtType: "LENT", personName: "ก้อง", amount: 20, debtDescription: "ยืมเงิน"
      * ตัวอย่าง: "ออกให้แฮม 120 ค่าข้าว" -> type: "DEBT", debtAction: "CREATE", debtType: "LENT", personName: "แฮม", amount: 120, debtDescription: "ค่าข้าว"
    - "เรายืมเขา / เราติดเขา" (debtType: "BORROWED"):
@@ -158,11 +227,11 @@ export async function parseAssistantIntent(
 2. type: "NOTE" (การจดโน้ต / บันทึกรายการ / รายการซื้อของ / ยา / สิ่งที่ต้องทำ)
    - เมื่อมีคำว่า: "จดโน้ต", "จดโน๊ต", "โน้ต", "โน๊ต", "บันทึก", "ซื้อของ", "รายการ", "list" หรือรายการของสั้นๆ เช่น "นาฬิกา กล้อง กระดาษ"
    - ถ้าผู้ใช้พิมพ์รายการต่อท้าย เช่น "จดโน้ต นาฬิกา กล้อง กระดาษ" หรือ "นาฬิกา กล้อง กระดาษ"
-     -> type: "NOTE", noteAction: "CREATE", noteItems: ["นาฬิกา", "กล้อง", "กระดาษ"], noteTitle: "โน้ตบันทึก", noteCategory: "GENERAL"
+     -> type: "NOTE", noteAction: "CREATE", noteItems: ["นาชา", "กล้อง", "กระดาษ"], noteTitle: "โน้ตบันทึก", noteCategory: "GENERAL"
    - ถ้าผู้ใช้พูดว่า "ดูโน้ต", "ดูโน๊ต", "โน้ตทั้งหมด", "มีโน้ตอะไรบ้าง" -> type: "NOTE", noteAction: "LIST"
 
 3. type: "REMINDER" (การตั้งเตือนความจำที่มีกิจกรรมและเวลา)
-   - เมื่อมีคำบอกเวลา เช่น "พรุ่งนี้", "วันนี้", "สี่โมง", "16:00", "20.00", "2 ทุ่ม", "9 โมง", "อย่าลืม..."
+   - ตัวอย่าง: "กินข้าวสามทุ่ม" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "กินข้าว", displayDate: "วันนี้", displayTime: "21:00 น.", remindAtISO: (เวลา 21:00:00 น. วันนี้)
    - ตัวอย่าง: "ไปเที่ยวพรุ่งนี้สี่โมง" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "ไปเที่ยว", displayDate: "พรุ่งนี้", displayTime: "16:00 น.", remindAtISO: (คำนวณ ISO วันพรุ่งนี้เวลา 16:00:00+07:00)
    - ตัวอย่าง: "เล่นเกม 20.00" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "เล่นเกม", displayDate: "วันนี้", displayTime: "20:00 น.", remindAtISO: (คำนวณ ISO วันนี้เวลา 20:00:00+07:00)
    - ตัวอย่าง: "ยกเลิกเตือน" -> type: "REMINDER", reminderAction: "CANCEL"
