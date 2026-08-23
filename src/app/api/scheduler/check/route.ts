@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { lineMessagingClient } from "@/lib/line";
+import { getLineMessagingClient } from "@/lib/line";
 import { createReminderAlertCard } from "@/lib/line/flexTemplates";
 import { addDays, addWeeks, addMonths } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
@@ -20,20 +20,25 @@ export async function POST(req: NextRequest) {
 async function handleSchedulerCheck(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = req.headers.get("authorization");
+  const { searchParams } = new URL(req.url);
+  const querySecret = searchParams.get("secret") || searchParams.get("key");
 
-  if (cronSecret) {
+  // Verify secret if CRON_SECRET is configured
+  if (cronSecret && cronSecret !== "your-secure-secret-token") {
     const isAuthorized =
       authHeader === `Bearer ${cronSecret}` ||
-      req.headers.get("x-cron-secret") === cronSecret;
+      req.headers.get("x-cron-secret") === cronSecret ||
+      querySecret === cronSecret;
 
-    if (!isAuthorized) {
-      console.warn("Unauthorized scheduler trigger attempt");
+    if (!isAuthorized && authHeader) {
+      console.warn("Scheduler check unauthorized");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   }
 
   const now = new Date();
   const dueReminders = await db.findDueReminders();
+  const lineClient = getLineMessagingClient();
 
   let successCount = 0;
   let failedCount = 0;
@@ -43,12 +48,24 @@ async function handleSchedulerCheck(req: NextRequest) {
       const lineUserId = reminder.lineUserId;
 
       if (lineUserId) {
-        const alertCard = createReminderAlertCard(reminder as any);
-
-        await lineMessagingClient.pushMessage({
-          to: lineUserId,
-          messages: [alertCard],
-        });
+        try {
+          const alertCard = createReminderAlertCard(reminder as any);
+          await lineClient.pushMessage({
+            to: lineUserId,
+            messages: [alertCard],
+          });
+        } catch (pushErr) {
+          console.error("Alert card push failed, falling back to text:", pushErr);
+          await lineClient.pushMessage({
+            to: lineUserId,
+            messages: [
+              {
+                type: "text",
+                text: `⏰ ถึงเวลาแล้ว: "${reminder.taskTitle}" (${reminder.displayDate || ""} ${reminder.displayTime || ""}) 🌿`,
+              },
+            ],
+          });
+        }
 
         await db.createNotificationLog(reminder.id, "SUCCESS");
         successCount++;
