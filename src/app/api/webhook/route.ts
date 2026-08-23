@@ -7,6 +7,8 @@ import { parseReminderIntent } from "@/lib/ai/reminderParser";
 import { createReminderSuccessCard } from "@/lib/line/flexTemplates";
 import { formatInTimeZone } from "date-fns-tz";
 
+export const dynamic = "force-dynamic";
+
 function verifySignature(body: string, signature: string, secret: string): boolean {
   if (!signature || !secret) return false;
   const hash = crypto.createHmac("SHA256", secret).update(body).digest("base64");

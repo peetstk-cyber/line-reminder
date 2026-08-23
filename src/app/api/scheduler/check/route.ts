@@ -5,6 +5,8 @@ import { createReminderAlertCard } from "@/lib/line/flexTemplates";
 import { addDays, addWeeks, addMonths } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 
+export const dynamic = "force-dynamic";
+
 const TIMEZONE = "Asia/Bangkok";
 
 export async function GET(req: NextRequest) {

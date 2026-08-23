@@ -4,6 +4,8 @@ import { parseReminderIntent } from "@/lib/ai/reminderParser";
 import { startOfDay, endOfDay, startOfWeek, endOfWeek } from "date-fns";
 import { toZonedTime, formatInTimeZone } from "date-fns-tz";
 
+export const dynamic = "force-dynamic";
+
 const TIMEZONE = "Asia/Bangkok";
 
 export async function GET(req: NextRequest) {
