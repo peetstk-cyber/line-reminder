@@ -121,8 +121,7 @@ export default function LiffDashboard() {
   // Manual Reminder Creator State
   const [isCreatingReminder, setIsCreatingReminder] = useState(false);
   const [newReminderTitle, setNewReminderTitle] = useState("");
-  const [newReminderDate, setNewReminderDate] = useState("");
-  const [newReminderTime, setNewReminderTime] = useState("");
+  const [newReminderDateTime, setNewReminderDateTime] = useState("");
   const [newReminderRecurrence, setNewReminderRecurrence] = useState<"NONE" | "DAILY" | "WEEKLY" | "MONTHLY">("NONE");
   const [newReminderAdvanceMinutes, setNewReminderAdvanceMinutes] = useState<number>(0);
   const [isSavingReminder, setIsSavingReminder] = useState(false);
@@ -130,8 +129,7 @@ export default function LiffDashboard() {
   // Edit Reminder Modal State
   const [editingReminder, setEditingReminder] = useState<ReminderItem | null>(null);
   const [editTitle, setEditTitle] = useState("");
-  const [editDate, setEditDate] = useState("");
-  const [editTime, setEditTime] = useState("");
+  const [editDateTime, setEditDateTime] = useState("");
   const [editRecurrence, setEditRecurrence] = useState<"NONE" | "DAILY" | "WEEKLY" | "MONTHLY">("NONE");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
@@ -290,11 +288,11 @@ export default function LiffDashboard() {
   // Handle Create Manual Reminder
   async function handleCreateManualReminder(e: React.FormEvent) {
     e.preventDefault();
-    if (!newReminderTitle.trim() || !newReminderDate || !newReminderTime || isSavingReminder) return;
+    if (!newReminderTitle.trim() || !newReminderDateTime || isSavingReminder) return;
 
     try {
       setIsSavingReminder(true);
-      const selectedDate = new Date(`${newReminderDate}T${newReminderTime}:00`);
+      const selectedDate = new Date(newReminderDateTime);
       const triggerDate = new Date(selectedDate.getTime() - newReminderAdvanceMinutes * 60000);
 
       const res = await fetch("/api/reminders", {
@@ -311,8 +309,7 @@ export default function LiffDashboard() {
 
       if (res.ok) {
         setNewReminderTitle("");
-        setNewReminderDate("");
-        setNewReminderTime("");
+        setNewReminderDateTime("");
         setNewReminderRecurrence("NONE");
         setNewReminderAdvanceMinutes(0);
         setIsCreatingReminder(false);
@@ -366,14 +363,13 @@ export default function LiffDashboard() {
     setEditRecurrence(reminder.recurrence);
 
     const d = new Date(reminder.remindAt);
-    setEditDate(formatInTimeZone(d, "Asia/Bangkok", "yyyy-MM-dd"));
-    setEditTime(formatInTimeZone(d, "Asia/Bangkok", "HH:mm"));
+    setEditDateTime(formatInTimeZone(d, "Asia/Bangkok", "yyyy-MM-dd'T'HH:mm"));
   }
 
   // Save Edited Reminder
   async function handleSaveEditReminder(e: React.FormEvent) {
     e.preventDefault();
-    if (!editingReminder || !editTitle.trim() || !editDate || !editTime || isSavingEdit) return;
+    if (!editingReminder || !editTitle.trim() || !editDateTime || isSavingEdit) return;
 
     try {
       setIsSavingEdit(true);
@@ -382,7 +378,7 @@ export default function LiffDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           taskTitle: editTitle.trim(),
-          remindAt: new Date(`${editDate}T${editTime}:00`).toISOString(),
+          remindAt: new Date(editDateTime).toISOString(),
           recurrence: editRecurrence,
         }),
       });
@@ -743,8 +739,7 @@ export default function LiffDashboard() {
                   setIsCreatingReminder(true);
                   const now = new Date();
                   now.setHours(now.getHours() + 1, 0, 0, 0);
-                  setNewReminderDate(formatInTimeZone(now, "Asia/Bangkok", "yyyy-MM-dd"));
-                  setNewReminderTime(formatInTimeZone(now, "Asia/Bangkok", "HH:mm"));
+                  setNewReminderDateTime(formatInTimeZone(now, "Asia/Bangkok", "yyyy-MM-dd'T'HH:mm"));
                 }}
                 className="w-full bg-white hover:bg-sand-light/60 border border-sand rounded-2xl p-3.5 flex items-center justify-between text-mocha font-semibold text-sm shadow-sm transition-all group"
               >
@@ -789,35 +784,40 @@ export default function LiffDashboard() {
                   />
                 </div>
 
-                {/* Date Picker (Full Width - 100% fits iOS Thai Date rendering without overflow) */}
+                {/* Unified Date & Time Picker */}
                 <div>
                   <label className="block text-xs font-semibold text-mocha-muted mb-1 flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5 text-matcha-dark" />
-                    วันที่ *
+                    วันและเวลาที่ต้องการเตือน *
                   </label>
                   <input
-                    type="date"
-                    value={newReminderDate}
-                    onChange={(e) => setNewReminderDate(e.target.value)}
+                    type="datetime-local"
+                    value={newReminderDateTime}
+                    onChange={(e) => setNewReminderDateTime(e.target.value)}
                     required
                     className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2.5 text-sm text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
                   />
                 </div>
 
-                {/* Time & Advance Alert Side-by-Side (Short values fit easily) */}
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="min-w-0">
-                    <label className="block text-xs font-semibold text-mocha-muted mb-1 flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-matcha-dark" />
-                      เวลา *
+                    <label className="block text-xs font-semibold text-mocha-muted mb-1">
+                      การเตือนซ้ำ
                     </label>
-                    <input
-                      type="time"
-                      value={newReminderTime}
-                      onChange={(e) => setNewReminderTime(e.target.value)}
-                      required
-                      className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
-                    />
+                    <select
+                      value={newReminderRecurrence}
+                      onChange={(e) =>
+                        setNewReminderRecurrence(
+                          e.target.value as "NONE" | "DAILY" | "WEEKLY" | "MONTHLY"
+                        )
+                      }
+                      className="w-full bg-sand-light border border-sand rounded-xl px-2.5 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha truncate"
+                    >
+                      <option value="NONE">ไม่เตือนซ้ำ (ครั้งเดียว)</option>
+                      <option value="DAILY">เตือนทุกวัน</option>
+                      <option value="WEEKLY">เตือนทุกสัปดาห์</option>
+                      <option value="MONTHLY">เตือนทุกเดือน</option>
+                    </select>
                   </div>
 
                   <div className="min-w-0">
@@ -827,7 +827,7 @@ export default function LiffDashboard() {
                     <select
                       value={newReminderAdvanceMinutes}
                       onChange={(e) => setNewReminderAdvanceMinutes(parseInt(e.target.value, 10))}
-                      className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha truncate"
+                      className="w-full bg-sand-light border border-sand rounded-xl px-2.5 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha truncate"
                     >
                       <option value={0}>ตรงเวลาพอดี</option>
                       <option value={5}>เตือนก่อน 5 นาที</option>
@@ -840,27 +840,6 @@ export default function LiffDashboard() {
                   </div>
                 </div>
 
-                {/* Recurrence Dropdown (Full Width) */}
-                <div>
-                  <label className="block text-xs font-semibold text-mocha-muted mb-1">
-                    การเตือนซ้ำ
-                  </label>
-                  <select
-                    value={newReminderRecurrence}
-                    onChange={(e) =>
-                      setNewReminderRecurrence(
-                        e.target.value as "NONE" | "DAILY" | "WEEKLY" | "MONTHLY"
-                      )
-                    }
-                    className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha truncate"
-                  >
-                    <option value="NONE">ไม่เตือนซ้ำ (ครั้งเดียว)</option>
-                    <option value="DAILY">เตือนทุกวัน</option>
-                    <option value="WEEKLY">เตือนทุกสัปดาห์</option>
-                    <option value="MONTHLY">เตือนทุกเดือน</option>
-                  </select>
-                </div>
-
                 <div className="flex items-center justify-end gap-2 pt-1">
                   <button
                     type="button"
@@ -871,7 +850,7 @@ export default function LiffDashboard() {
                   </button>
                   <button
                     type="submit"
-                    disabled={isSavingReminder || !newReminderTitle.trim() || !newReminderDate || !newReminderTime}
+                    disabled={isSavingReminder || !newReminderTitle.trim() || !newReminderDateTime}
                     className="px-4 py-2 text-xs font-semibold bg-matcha-dark hover:bg-matcha text-white rounded-xl shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
                   >
                     {isSavingReminder && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
@@ -1664,56 +1643,39 @@ export default function LiffDashboard() {
                 />
               </div>
 
-              {/* Date Picker (Full Width - 100% fits iOS Thai Date rendering without overflow) */}
+              {/* Unified Date & Time Picker */}
               <div>
                 <label className="block text-xs font-semibold text-mocha-muted mb-1 flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5 text-matcha-dark" />
-                  วันที่
+                  วันและเวลาที่ต้องการเตือน
                 </label>
                 <input
-                  type="date"
-                  value={editDate}
-                  onChange={(e) => setEditDate(e.target.value)}
+                  type="datetime-local"
+                  value={editDateTime}
+                  onChange={(e) => setEditDateTime(e.target.value)}
                   required
                   className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2.5 text-sm text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
                 />
               </div>
 
-              {/* Time & Recurrence Side-by-Side */}
-              <div className="grid grid-cols-2 gap-2.5">
-                <div className="min-w-0">
-                  <label className="block text-xs font-semibold text-mocha-muted mb-1 flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5 text-matcha-dark" />
-                    เวลา
-                  </label>
-                  <input
-                    type="time"
-                    value={editTime}
-                    onChange={(e) => setEditTime(e.target.value)}
-                    required
-                    className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
-                  />
-                </div>
-
-                <div className="min-w-0">
-                  <label className="block text-xs font-semibold text-mocha-muted mb-1">
-                    การเตือนซ้ำ
-                  </label>
-                  <select
-                    value={editRecurrence}
-                    onChange={(e) =>
-                      setEditRecurrence(
-                        e.target.value as "NONE" | "DAILY" | "WEEKLY" | "MONTHLY"
-                      )
-                    }
-                    className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha truncate"
-                  >
-                    <option value="NONE">ไม่เตือนซ้ำ</option>
-                    <option value="DAILY">เตือนทุกวัน</option>
-                    <option value="WEEKLY">เตือนทุกสัปดาห์</option>
-                    <option value="MONTHLY">เตือนทุกเดือน</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block text-xs font-semibold text-mocha-muted mb-1">
+                  การเตือนซ้ำ
+                </label>
+                <select
+                  value={editRecurrence}
+                  onChange={(e) =>
+                    setEditRecurrence(
+                      e.target.value as "NONE" | "DAILY" | "WEEKLY" | "MONTHLY"
+                    )
+                  }
+                  className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-sm text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                >
+                  <option value="NONE">ไม่เตือนซ้ำ (ครั้งเดียว)</option>
+                  <option value="DAILY">เตือนทุกวัน</option>
+                  <option value="WEEKLY">เตือนทุกสัปดาห์</option>
+                  <option value="MONTHLY">เตือนทุกเดือน</option>
+                </select>
               </div>
 
               <div className="pt-2 flex items-center justify-end gap-2">
