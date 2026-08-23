@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { lineUserId, prompt, taskTitle, remindAt, recurrence } = body;
+    const { lineUserId, prompt, taskTitle, remindAt, recurrence, advanceMinutes = 0 } = body;
 
     if (!lineUserId) {
       return NextResponse.json({ error: "lineUserId is required" }, { status: 400 });
@@ -95,14 +95,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const remindAtDate = new Date(remindAt);
-    const displayDate = formatInTimeZone(remindAtDate, TIMEZONE, "dd MMM yyyy");
-    const displayTime = formatInTimeZone(remindAtDate, TIMEZONE, "HH:mm น.");
+    const triggerDate = new Date(remindAt);
+    const eventDate = advanceMinutes > 0 ? new Date(triggerDate.getTime() + advanceMinutes * 60000) : triggerDate;
+    const displayDate = formatInTimeZone(eventDate, TIMEZONE, "dd MMM yyyy");
+    let displayTime = formatInTimeZone(eventDate, TIMEZONE, "HH:mm น.");
+    if (advanceMinutes > 0) {
+      const advLabel =
+        advanceMinutes >= 1440
+          ? `${Math.floor(advanceMinutes / 1440)} วัน`
+          : advanceMinutes >= 60
+          ? `${Math.floor(advanceMinutes / 60)} ชม.`
+          : `${advanceMinutes} นาที`;
+      displayTime += ` (เตือนล่วงหน้า ${advLabel})`;
+    }
 
     const reminder = await db.createReminder({
       userId: user.id,
       taskTitle,
-      remindAt: remindAtDate,
+      remindAt: triggerDate,
       displayDate,
       displayTime,
       recurrence: recurrence || "NONE",

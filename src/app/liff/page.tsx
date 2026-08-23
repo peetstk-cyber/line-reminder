@@ -116,9 +116,14 @@ export default function LiffDashboard() {
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
   const [stats, setStats] = useState<Stats>({ todayCount: 0, totalPending: 0, completedCount: 0 });
   const [activeReminderFilter, setActiveReminderFilter] = useState<"all" | "today" | "week" | "completed">("all");
-  const [quickReminderPrompt, setQuickReminderPrompt] = useState("");
-  const [isSubmittingReminder, setIsSubmittingReminder] = useState(false);
-  const [reminderAiMessage, setReminderAiMessage] = useState<{ text: string; type: "info" | "success" | "error" } | null>(null);
+  
+  // Manual Reminder Creator State
+  const [isCreatingReminder, setIsCreatingReminder] = useState(false);
+  const [newReminderTitle, setNewReminderTitle] = useState("");
+  const [newReminderDateTime, setNewReminderDateTime] = useState("");
+  const [newReminderRecurrence, setNewReminderRecurrence] = useState<"NONE" | "DAILY" | "WEEKLY" | "MONTHLY">("NONE");
+  const [newReminderAdvanceMinutes, setNewReminderAdvanceMinutes] = useState<number>(0);
+  const [isSavingReminder, setIsSavingReminder] = useState(false);
 
   // Edit Reminder Modal State
   const [editingReminder, setEditingReminder] = useState<ReminderItem | null>(null);
@@ -279,52 +284,40 @@ export default function LiffDashboard() {
     }
   }, [isLiffReady, lineUserId, activeMainTab, activeReminderFilter, activeNoteCategory, fetchReminders, fetchNotes, fetchDebts]);
 
-  // Handle Quick Add Reminder
-  async function handleQuickAddReminder(e: React.FormEvent) {
+  // Handle Create Manual Reminder
+  async function handleCreateManualReminder(e: React.FormEvent) {
     e.preventDefault();
-    if (!quickReminderPrompt.trim() || isSubmittingReminder) return;
+    if (!newReminderTitle.trim() || !newReminderDateTime || isSavingReminder) return;
 
     try {
-      setIsSubmittingReminder(true);
-      setReminderAiMessage(null);
+      setIsSavingReminder(true);
+      const selectedDate = new Date(newReminderDateTime);
+      const triggerDate = new Date(selectedDate.getTime() - newReminderAdvanceMinutes * 60000);
 
       const res = await fetch("/api/reminders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lineUserId,
-          prompt: quickReminderPrompt.trim(),
+          taskTitle: newReminderTitle.trim(),
+          remindAt: triggerDate.toISOString(),
+          recurrence: newReminderRecurrence,
+          advanceMinutes: newReminderAdvanceMinutes,
         }),
       });
 
-      const data = await res.json();
-
-      if (data.status === "SUCCESS") {
-        setQuickReminderPrompt("");
-        setReminderAiMessage({
-          type: "success",
-          text: `✨ ตั้งเตือน "${data.reminder.taskTitle}" (${data.reminder.displayDate || ""} ${data.reminder.displayTime || ""}) เรียบร้อย!`,
-        });
+      if (res.ok) {
+        setNewReminderTitle("");
+        setNewReminderDateTime("");
+        setNewReminderRecurrence("NONE");
+        setNewReminderAdvanceMinutes(0);
+        setIsCreatingReminder(false);
         fetchReminders(activeReminderFilter);
-      } else if (data.status === "CLARIFY") {
-        setReminderAiMessage({
-          type: "info",
-          text: data.message,
-        });
-      } else {
-        setReminderAiMessage({
-          type: "error",
-          text: data.error || "เกิดข้อผิดพลาดในการสร้างการแจ้งเตือน",
-        });
       }
     } catch (err) {
-      console.error("Quick add failed:", err);
-      setReminderAiMessage({
-        type: "error",
-        text: "ไม่สามารถเชื่อมต่อระบบได้ กรุณาลองใหม่อีกครั้ง",
-      });
+      console.error("Failed to create manual reminder:", err);
     } finally {
-      setIsSubmittingReminder(false);
+      setIsSavingReminder(false);
     }
   }
 
@@ -741,53 +734,134 @@ export default function LiffDashboard() {
         {/* ========================================================================= */}
         {activeMainTab === "reminders" && (
           <>
-            {/* Quick Add Bar */}
-            <section className="bg-white rounded-2xl p-4 shadow-sm border border-sand">
-              <div className="flex items-center gap-2 mb-2">
-                <Sparkles className="w-4 h-4 text-amber-500" />
-                <span className="text-xs font-bold text-mocha uppercase tracking-wider">
-                  AI Smart Quick Add (เตือนความจำ)
-                </span>
-              </div>
-
-              <form onSubmit={handleQuickAddReminder} className="flex flex-col gap-2">
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={quickReminderPrompt}
-                    onChange={(e) => setQuickReminderPrompt(e.target.value)}
-                    placeholder="เช่น 'พรุ่งนี้ 9 โมง สรุปงานกับทีม' หรือ '2 ทุ่ม อ่านหนังสือ'"
-                    className="w-full bg-sand-light border border-sand rounded-xl px-3.5 py-2.5 text-sm text-mocha placeholder:text-mocha-muted/60 focus:outline-none focus:ring-2 focus:ring-matcha focus:border-transparent transition-all pr-10"
-                  />
+            {/* Create Reminder Button / Form */}
+            {!isCreatingReminder ? (
+              <button
+                onClick={() => {
+                  setIsCreatingReminder(true);
+                  const now = new Date();
+                  now.setHours(now.getHours() + 1, 0, 0, 0);
+                  const localIso = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+                    .toISOString()
+                    .slice(0, 16);
+                  setNewReminderDateTime(localIso);
+                }}
+                className="w-full bg-white hover:bg-sand-light/60 border border-sand rounded-2xl p-3.5 flex items-center justify-between text-mocha font-semibold text-sm shadow-sm transition-all group"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-matcha-subtle text-matcha-dark flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <Plus className="w-5 h-5" />
+                  </div>
+                  <span>เพิ่มการแจ้งเตือน</span>
+                </div>
+                <span className="text-xs text-mocha-muted font-normal">กดเพื่อเลือกวันเวลา ⏰</span>
+              </button>
+            ) : (
+              <form
+                onSubmit={handleCreateManualReminder}
+                className="bg-white rounded-2xl p-4 shadow-md border border-matcha-light space-y-3.5 animate-in fade-in zoom-in-95 duration-150"
+              >
+                <div className="flex items-center justify-between border-b border-sand pb-2">
+                  <h3 className="text-sm font-bold text-mocha flex items-center gap-1.5">
+                    <Bell className="w-4 h-4 text-matcha-dark" />
+                    เพิ่มการแจ้งเตือนใหม่
+                  </h3>
                   <button
-                    type="submit"
-                    disabled={isSubmittingReminder || !quickReminderPrompt.trim()}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 bg-matcha-dark hover:bg-matcha text-white rounded-lg flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm"
+                    type="button"
+                    onClick={() => setIsCreatingReminder(false)}
+                    className="text-mocha-muted hover:text-mocha p-1 rounded-lg hover:bg-sand"
                   >
-                    {isSubmittingReminder ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Plus className="w-4 h-4" />
-                    )}
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
 
-                {reminderAiMessage && (
-                  <div
-                    className={`text-xs px-3 py-2 rounded-xl flex items-start gap-2 ${
-                      reminderAiMessage.type === "success"
-                        ? "bg-matcha-subtle text-matcha-dark border border-matcha-light"
-                        : reminderAiMessage.type === "info"
-                        ? "bg-amber-50 text-amber-900 border border-amber-200"
-                        : "bg-red-50 text-red-900 border border-red-200"
-                    }`}
-                  >
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <p className="leading-snug">{reminderAiMessage.text}</p>
+                <div>
+                  <label className="block text-xs font-semibold text-mocha-muted mb-1">
+                    สิ่งที่ต้องทำ / กิจกรรม *
+                  </label>
+                  <input
+                    type="text"
+                    value={newReminderTitle}
+                    onChange={(e) => setNewReminderTitle(e.target.value)}
+                    placeholder="เช่น ประชุมกับทีม, กินยาหลังอาหาร, ซื้อของเข้าบ้าน"
+                    required
+                    className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-sm text-mocha placeholder:text-mocha-muted/60 focus:outline-none focus:ring-2 focus:ring-matcha"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-mocha-muted mb-1">
+                    วันและเวลาที่ต้องทำ *
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={newReminderDateTime}
+                    onChange={(e) => setNewReminderDateTime(e.target.value)}
+                    required
+                    className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-sm text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-xs font-semibold text-mocha-muted mb-1">
+                      การเตือนซ้ำ
+                    </label>
+                    <select
+                      value={newReminderRecurrence}
+                      onChange={(e) =>
+                        setNewReminderRecurrence(
+                          e.target.value as "NONE" | "DAILY" | "WEEKLY" | "MONTHLY"
+                        )
+                      }
+                      className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                    >
+                      <option value="NONE">ไม่เตือนซ้ำ (ครั้งเดียว)</option>
+                      <option value="DAILY">เตือนทุกวัน</option>
+                      <option value="WEEKLY">เตือนทุกสัปดาห์</option>
+                      <option value="MONTHLY">เตือนทุกเดือน</option>
+                    </select>
                   </div>
-                )}
+
+                  <div>
+                    <label className="block text-xs font-semibold text-mocha-muted mb-1">
+                      เตือนก่อนเวลา
+                    </label>
+                    <select
+                      value={newReminderAdvanceMinutes}
+                      onChange={(e) => setNewReminderAdvanceMinutes(parseInt(e.target.value, 10))}
+                      className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-xs text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                    >
+                      <option value={0}>ตรงเวลาพอดี</option>
+                      <option value={5}>เตือนก่อน 5 นาที</option>
+                      <option value={10}>เตือนก่อน 10 นาที</option>
+                      <option value={15}>เตือนก่อน 15 นาที</option>
+                      <option value={30}>เตือนก่อน 30 นาที</option>
+                      <option value={60}>เตือนก่อน 1 ชั่วโมง</option>
+                      <option value={1440}>เตือนก่อน 1 วัน</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsCreatingReminder(false)}
+                    className="px-4 py-2 text-xs font-semibold text-mocha-muted hover:bg-sand rounded-xl transition-colors"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingReminder || !newReminderTitle.trim() || !newReminderDateTime}
+                    className="px-4 py-2 text-xs font-semibold bg-matcha-dark hover:bg-matcha text-white rounded-xl shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isSavingReminder && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>บันทึกการแจ้งเตือน</span>
+                  </button>
+                </div>
               </form>
-            </section>
+            )}
 
             {/* Filter Tabs */}
             <section className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
