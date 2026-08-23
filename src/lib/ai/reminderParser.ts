@@ -118,7 +118,7 @@ export async function parseAssistantIntent(
 
   // Pattern 1: เรายืม <คน> <เงิน> [เหตุผล]
   const weBorrowMatch = trimmed.match(
-    /^(?:เรายืม|ผมยืม|ยืม|ติดเงิน|ติดตังค์)\s*([ก-๙a-zA-Z]+)\s+(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)?(?:\s+(.+))?$/
+    /^(?:เรายืม|ผมยืม|ยืม|ติดเงิน|ติดตังค์)\s*([ก-๙a-zA-Z]+?)\s*(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)?(?:\s+(.+))?$/
   );
   if (weBorrowMatch) {
     return {
@@ -133,7 +133,7 @@ export async function parseAssistantIntent(
 
   // Pattern 2: <คน>ยืม <เงิน> [เหตุผล]
   const theyBorrowMatch = trimmed.match(
-    /^([ก-๙a-zA-Z]+)\s*ยืม\s*(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)?(?:\s+(.+))?$/
+    /^([ก-๙a-zA-Z]+?)\s*ยืม\s*(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)?(?:\s+(.+))?$/
   );
   if (theyBorrowMatch) {
     return {
@@ -146,17 +146,18 @@ export async function parseAssistantIntent(
     };
   }
 
-  // Pattern 3: <คน> <เงิน> [บาท] [เหตุผล]
+  // Pattern 3: <คน> <เงิน> [บาท] [เหตุผล] (รองรับทั้ง "ก้อง 60" และ "ก้อง60")
   const quickDebtMatch = trimmed.match(
-    /^([ก-๙a-zA-Z]+)\s+(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)?(?:\s+(.+))?$/
+    /^([ก-๙a-zA-Z]+?)\s*(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)?(?:\s+(.+))?$/
   );
   if (quickDebtMatch) {
     const name = quickDebtMatch[1];
     const excludedKeywords = [
       "เตือน", "โน้ต", "โน๊ต", "ประชุม", "นัด", "ซื้อ", "ส่ง", "โทร",
-      "กิน", "ทำ", "วิ่ง", "นอน", "ตื่น", "อ่าน", "เรียน", "วันนี้", "พรุ่งนี้"
+      "กิน", "ทำ", "วิ่ง", "นอน", "ตื่น", "อ่าน", "เรียน", "วันนี้", "พรุ่งนี้",
+      "กี่", "ตอน", "อีก", "นาที", "ชั่วโมง"
     ];
-    if (!excludedKeywords.includes(name)) {
+    if (!excludedKeywords.includes(name) && name.length >= 2) {
       return {
         type: "DEBT",
         debtAction: "CREATE",
