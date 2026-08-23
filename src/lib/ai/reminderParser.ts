@@ -8,24 +8,24 @@ export const AssistantResultSchema = z.object({
   // REMINDER DETAILS
   reminderAction: z
     .enum(["CREATE", "CANCEL", "EDIT", "LIST", "CLARIFY"])
-    .nullable()
+    .nullish()
     .describe("Action สำหรับเตือนความจำ"),
-  taskTitle: z.string().nullable().describe("ชื่อกิจกรรมหรือสิ่งที่ต้องทำแบบสั้นกระชับ"),
+  taskTitle: z.string().nullish().describe("ชื่อกิจกรรมหรือสิ่งที่ต้องทำแบบสั้นกระชับ"),
   remindAtISO: z
     .string()
-    .nullable()
+    .nullish()
     .describe("ISO 8601 string ที่มี timezone +07:00 เช่น 2026-08-24T08:00:00+07:00"),
-  displayDate: z.string().nullable().describe("ข้อความแสดงวันที่ เช่น 'พรุ่งนี้', 'วันนี้'"),
-  displayTime: z.string().nullable().describe("ข้อความแสดงเวลา เช่น '08:00 น.', '20:00 น.'"),
-  recurrence: z.enum(["NONE", "DAILY", "WEEKLY", "MONTHLY"]).nullable(),
+  displayDate: z.string().nullish().describe("ข้อความแสดงวันที่ เช่น 'พรุ่งนี้', 'วันนี้'"),
+  displayTime: z.string().nullish().describe("ข้อความแสดงเวลา เช่น '08:00 น.', '20:00 น.'"),
+  recurrence: z.enum(["NONE", "DAILY", "WEEKLY", "MONTHLY"]).nullish(),
 
   // NOTE DETAILS
-  noteAction: z.enum(["CREATE", "LIST", "DELETE"]).nullable().describe("Action สำหรับโน้ต"),
-  noteTitle: z.string().nullable().describe("หัวข้อของโน้ต เช่น 'รายการซื้อของ', 'สิ่งที่ต้องทำ'"),
-  noteItems: z.array(z.string()).nullable().describe("รายการย่อย เช่น ['น้ำ', 'ขนมปัง', 'สาหร่าย']"),
-  noteCategory: z.enum(["SHOPPING", "TODO", "GENERAL"]).nullable(),
+  noteAction: z.enum(["CREATE", "LIST", "DELETE"]).nullish().describe("Action สำหรับโน้ต"),
+  noteTitle: z.string().nullish().describe("หัวข้อของโน้ต เช่น 'รายการซื้อของ', 'รายการยา', 'สิ่งที่ต้องทำ'"),
+  noteItems: z.array(z.string()).nullish().describe("รายการย่อย เช่น ['metoprolol', 'metoclopramide'] หรือ ['น้ำ', 'ขนมปัง']"),
+  noteCategory: z.enum(["SHOPPING", "TODO", "GENERAL"]).nullish(),
 
-  replyText: z.string().nullable().describe("ข้อความตอบกลับหรือคำถามเพิ่มเติมที่สุภาพและเป็นกันเอง"),
+  replyText: z.string().nullish().describe("ข้อความตอบกลับหรือคำถามเพิ่มเติมที่สุภาพและเป็นกันเอง"),
 });
 
 export type AssistantResult = z.infer<typeof AssistantResultSchema>;
@@ -118,32 +118,39 @@ export async function parseAssistantIntent(
   const currentISO = formatInTimeZone(now, userTimezone, "yyyy-MM-dd'T'HH:mm:ssXXX");
 
   const systemInstruction = `
-คุณคือ AI Personal Assistant สำหรับผู้ใช้งานคนไทยใน LINE (รองรับทั้งระบบเตือนความจำ และระบบจดโน้ต/รายการซื้อของ)
-หน้าที่ของคุณคือวิเคราะห์ข้อความของผู้ใช้ แล้วแปลงเป็น JSON โครงสร้างตาม Schema
+คุณคือ AI Personal Assistant ผู้ช่วยอัจฉริยะสำหรับผู้ใช้งานคนไทยใน LINE รองรับทั้งระบบเตือนความจำ (Reminders) และระบบจดโน้ต/รายการของ (Notes & Lists)
+หน้าที่ของคุณคือวิเคราะห์ข้อความของผู้ใช้ แล้วแปลงเป็น JSON โครงสร้างตาม Schema อย่างแม่นยำ
 
 [บริบทวันและเวลาปัจจุบัน (Timezone: ${userTimezone}, UTC+7)]
 - วันเวลาปัจจุบัน: ${currentFormatted}
 - Current ISO: ${currentISO}
 
-[เกณฑ์การจำแนกประเภท (type)]:
-1. type: "NOTE" (การจดโน้ต / รายการซื้อของ / รายการสิ่งที่ต้องทำ)
-   - เมื่อผู้ใช้พูดว่า "จดโน้ต...", "โน้ต...", "ซื้อของ...", "รายการซื้อ...", "บันทึก...", "จดไว้...", "ลิสต์..."
-   - หรือผู้ใช้พิมพ์รายการสิ่งของหรืออาหารสั้นๆ หลายรายการ เช่น "น้ำ ขนมปัง สาหร่าย", "ไข่ไก่ นม มาม่า", "ของต้องซื้อ: แชมพู สบู่"
-   - noteAction: "CREATE" (สร้างโน้ตใหม่), "LIST" (ดูโน้ต เช่น "ดูโน้ต", "โน้ตมีอะไรบ้าง"), "DELETE" (ลบโน้ต)
-   - noteCategory: 
-     * "SHOPPING" ถ้าเป็นของกิน ของใช้ วัตถุดิบ สิ่งของที่ต้องซื้อ
-     * "TODO" ถ้าเป็นสิ่งที่ต้องทำหรือภารกิจ
-     * "GENERAL" อื่นๆ ทั่วไป
-   - noteTitle: ตั้งชื่อให้กระชับ เช่น "รายการซื้อของ", "รายการของใช้", "บันทึกทั่วไป"
-   - noteItems: แยกเป็น Array ของ string สำหรับแต่ละไอเทม เช่น ["น้ำ", "ขนมปัง", "สาหร่าย"]
+[กฎการจำแนกประเภท (type)]:
+1. type: "NOTE" (การจดโน้ต / บันทึกรายการ / รายการซื้อของ / ยา / สิ่งที่ต้องทำ)
+   - เมื่อมีคำว่า: "จดโน้ต", "จดโน๊ต", "โน้ต", "โน๊ต", "บันทึก", "ซื้อของ", "รายการ", "list" หรือรายการของสั้นๆ
+   - ถ้าผู้ใช้พิมพ์รายการต่อท้าย เช่น "จดโน้ต metoprolol metoclopramide" หรือ "จดโน๊ต ซื้อไข่ไก่ นม"
+     -> type: "NOTE", noteAction: "CREATE", noteItems: ["metoprolol", "metoclopramide"] หรือ ["ไข่ไก่", "นม"], noteTitle: "รายการยา" หรือ "รายการซื้อของ", noteCategory: "GENERAL" หรือ "SHOPPING"
+   - ถ้าผู้ใช้พิมพ์แค่ "จดโน้ต" หรือ "จดโน๊ต" เดี่ยวๆ ไม่มีเนื้อหา
+     -> type: "NOTE", noteAction: "CREATE", noteTitle: "โน้ตใหม่", noteItems: [], replyText: "ต้องการให้จดโน้ตเรื่องอะไรครับ?"
+   - ถ้าผู้ใช้พูดว่า "ดูโน้ต", "ดูโน๊ต", "โน้ตทั้งหมด", "มีโน้ตอะไรบ้าง"
+     -> type: "NOTE", noteAction: "LIST"
 
-2. type: "REMINDER" (การตั้งเตือนความจำที่มีวัน/เวลา หรือเจตนาให้บอทแจ้งเตือน)
-   - เมื่อผู้ใช้ระบุเวลา เช่น "พรุ่งนี้ 9 โมง...", "เตือนตอน...", "อีก 15 นาที...", "2 ทุ่ม..."
-   - แปลงเวลาไทยเป็น 24h ISO 8601 และ displayDate/displayTime
-   - reminderAction: "CREATE", "CANCEL", "EDIT", "LIST", "CLARIFY"
+2. type: "REMINDER" (การตั้งเตือนความจำที่มีกิจกรรมและเวลา)
+   - เมื่อมีคำบอกเวลา เช่น "20.00", "20:00", "2 ทุ่ม", "9 โมง", "พรุ่งนี้", "วันนี้", "อีก 10 นาที"
+   - ตัวอย่าง: "เล่นเกม 20.00" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "เล่นเกม", displayDate: "วันนี้", displayTime: "20:00 น.", remindAtISO: (ISO วันนี้เวลา 20:00:00+07:00)
+   - ตัวอย่าง: "พรุ่งนี้ 8 โมง กินยา" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "กินยา", displayDate: "พรุ่งนี้", displayTime: "08:00 น."
+   - ตัวอย่าง: "ยกเลิกเตือน" -> type: "REMINDER", reminderAction: "CANCEL"
+   - ตัวอย่าง: "เตือนอะไรไว้บ้าง", "ดูรายการเตือน" -> type: "REMINDER", reminderAction: "LIST"
+   - การแปลงเวลาไทย:
+     * "20.00", "20.00 น.", "20:00" -> 20:00 น.
+     * "8.30", "08:30" -> 08:30 น.
+     * "1 ทุ่ม" -> 19:00, "2 ทุ่ม" -> 20:00, "3 ทุ่ม" -> 21:00, "4 ทุ่ม" -> 22:00
+     * "บ่ายโมง" -> 13:00, "บ่าย 2" -> 14:00, "บ่าย 3" -> 15:00, "บ่าย 4" -> 16:00, "5 โมงเย็น" -> 17:00, "6 โมงเย็น" -> 18:00
+     * ถ้าไม่มีวันที่ระบุ ให้ถือว่าเป็น "วันนี้" (ถ้าเวลายังไม่ผ่าน) หรือ "พรุ่งนี้" (ถ้าเวลาผ่านไปแล้ว)
 
-3. type: "GENERAL_CHAT" (การสนทนาทักทายทั่วไป)
-   - replyText: ข้อความตอบรับที่เป็นมิตร
+3. type: "GENERAL_CHAT" (การสนทนาทักทายทั่วไป หรือคำถามทั่วไป)
+   - เช่น "สวัสดี", "ทำอะไรได้บ้าง", "ใครสร้างนาย"
+   - replyText: ตอบรับอย่างสุภาพและเป็นมิตร พร้อมแนะนำตัวอย่างคำสั่งที่ทำได้
 `;
 
   const prompt = `${systemInstruction}
@@ -198,16 +205,15 @@ export async function parseReminderIntent(
     return {
       action: result.reminderAction || "CREATE",
       taskTitle: result.taskTitle || userMessage,
-      remindAtISO: result.remindAtISO,
+      remindAtISO: result.remindAtISO || null,
       displayDate: result.displayDate || "-",
       displayTime: result.displayTime || "-",
       recurrence: result.recurrence || "NONE",
-      clarificationQuestion: result.replyText,
+      clarificationQuestion: result.replyText || null,
     };
   }
 
   if (result.type === "NOTE") {
-    // If called via old interface, return clarify/general
     return {
       action: "GENERAL_CHAT",
       taskTitle: result.noteTitle || userMessage,
@@ -215,7 +221,7 @@ export async function parseReminderIntent(
       displayDate: "-",
       displayTime: "-",
       recurrence: "NONE",
-      clarificationQuestion: result.replyText,
+      clarificationQuestion: result.replyText || null,
     };
   }
 
@@ -226,8 +232,9 @@ export async function parseReminderIntent(
     displayDate: "-",
     displayTime: "-",
     recurrence: "NONE",
-    clarificationQuestion: result.replyText,
+    clarificationQuestion: result.replyText || null,
   };
 }
 
 export const parseReminderWithAI = parseReminderIntent;
+

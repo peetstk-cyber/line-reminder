@@ -150,15 +150,28 @@ async function handleTextMessage(
   // -------------------------------------------------------------
   if (assistant.type === "NOTE") {
     if (assistant.noteAction === "CREATE" || !assistant.noteAction) {
-      const itemsList = (assistant.noteItems && assistant.noteItems.length > 0)
-        ? assistant.noteItems
-        : [trimmedText];
+      if (!assistant.noteItems || assistant.noteItems.length === 0) {
+        await lineClient.replyMessage({
+          replyToken,
+          messages: [
+            {
+              type: "text",
+              text:
+                assistant.replyText ||
+                "ต้องการให้จดโน้ตเรื่องอะไรครับ? เช่น 'จดโน้ต ซื้อไข่ไก่ นม ขนมปัง' หรือ 'จดโน้ต ยา metoprolol'",
+            },
+          ],
+        });
+        return;
+      }
 
+      const itemsList = assistant.noteItems;
       const noteItems = itemsList.map((txt) => ({
         id: "item-" + Math.random().toString(36).substring(2, 9),
         text: txt.trim(),
         completed: false,
       }));
+
 
       let note;
       try {
