@@ -97,59 +97,6 @@ export async function parseAssistantIntent(
   }
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash",
-    generationConfig: {
-      temperature: 0.1,
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: SchemaType.OBJECT,
-        properties: {
-          type: {
-            type: SchemaType.STRING,
-            format: "enum",
-            enum: ["REMINDER", "NOTE", "BRIEFING", "GENERAL_CHAT"],
-          },
-          reminderAction: {
-            type: SchemaType.STRING,
-            format: "enum",
-            enum: ["CREATE", "CANCEL", "EDIT", "LIST", "CLARIFY"],
-            nullable: true,
-          },
-          taskTitle: { type: SchemaType.STRING, nullable: true },
-          remindAtISO: { type: SchemaType.STRING, nullable: true },
-          displayDate: { type: SchemaType.STRING, nullable: true },
-          displayTime: { type: SchemaType.STRING, nullable: true },
-          recurrence: {
-            type: SchemaType.STRING,
-            format: "enum",
-            enum: ["NONE", "DAILY", "WEEKLY", "MONTHLY"],
-            nullable: true,
-          },
-          noteAction: {
-            type: SchemaType.STRING,
-            format: "enum",
-            enum: ["CREATE", "LIST", "DELETE"],
-            nullable: true,
-          },
-          noteTitle: { type: SchemaType.STRING, nullable: true },
-          noteItems: {
-            type: SchemaType.ARRAY,
-            items: { type: SchemaType.STRING },
-            nullable: true,
-          },
-          noteCategory: {
-            type: SchemaType.STRING,
-            format: "enum",
-            enum: ["SHOPPING", "TODO", "GENERAL"],
-            nullable: true,
-          },
-          replyText: { type: SchemaType.STRING, nullable: true },
-        },
-        required: ["type"],
-      },
-    },
-  });
 
   const now = new Date();
   const currentFormatted = formatInTimeZone(
@@ -169,30 +116,31 @@ export async function parseAssistantIntent(
 
 [กฎการจำแนกประเภท (type)]:
 1. type: "NOTE" (การจดโน้ต / บันทึกรายการ / รายการซื้อของ / ยา / สิ่งที่ต้องทำ)
-   - เมื่อมีคำว่า: "จดโน้ต", "จดโน๊ต", "โน้ต", "โน๊ต", "บันทึก", "ซื้อของ", "รายการ", "list" หรือรายการของสั้นๆ
-   - ถ้าผู้ใช้พิมพ์รายการต่อท้าย เช่น "จดโน้ต metoprolol metoclopramide" หรือ "จดโน๊ต ซื้อไข่ไก่ นม"
-     -> type: "NOTE", noteAction: "CREATE", noteItems: ["metoprolol", "metoclopramide"] หรือ ["ไข่ไก่", "นม"], noteTitle: "รายการยา" หรือ "รายการซื้อของ", noteCategory: "GENERAL" หรือ "SHOPPING"
-   - ถ้าผู้ใช้พิมพ์แค่ "จดโน้ต" หรือ "จดโน๊ต" เดี่ยวๆ ไม่มีเนื้อหา
-     -> type: "NOTE", noteAction: "CREATE", noteTitle: "โน้ตใหม่", noteItems: [], replyText: "ต้องการให้จดโน้ตเรื่องอะไรครับ?"
-   - ถ้าผู้ใช้พูดว่า "ดูโน้ต", "ดูโน๊ต", "โน้ตทั้งหมด", "มีโน้ตอะไรบ้าง"
-     -> type: "NOTE", noteAction: "LIST"
+   - เมื่อมีคำว่า: "จดโน้ต", "จดโน๊ต", "โน้ต", "โน๊ต", "บันทึก", "ซื้อของ", "รายการ", "list" หรือรายการของสั้นๆ เช่น "นาฬิกา กล้อง กระดาษ"
+   - ถ้าผู้ใช้พิมพ์รายการต่อท้าย เช่น "จดโน้ต นาฬิกา กล้อง กระดาษ" หรือ "นาฬิกา กล้อง กระดาษ"
+     -> type: "NOTE", noteAction: "CREATE", noteItems: ["นาฬิกา", "กล้อง", "กระดาษ"], noteTitle: "โน้ตบันทึก", noteCategory: "GENERAL"
+   - ถ้าเป็นของกิน/ของสด/ของใช้ในบ้าน -> noteCategory: "SHOPPING", noteTitle: "รายการซื้อของ"
+   - ถ้าผู้ใช้พูดว่า "ดูโน้ต", "ดูโน๊ต", "โน้ตทั้งหมด", "มีโน้ตอะไรบ้าง" -> type: "NOTE", noteAction: "LIST"
 
 2. type: "REMINDER" (การตั้งเตือนความจำที่มีกิจกรรมและเวลา)
-   - เมื่อมีคำบอกเวลา เช่น "20.00", "20:00", "2 ทุ่ม", "9 โมง", "พรุ่งนี้", "วันนี้", "อีก 10 นาที"
-   - ตัวอย่าง: "เล่นเกม 20.00" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "เล่นเกม", displayDate: "วันนี้", displayTime: "20:00 น.", remindAtISO: (ISO วันนี้เวลา 20:00:00+07:00)
-   - ตัวอย่าง: "พรุ่งนี้ 8 โมง กินยา" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "กินยา", displayDate: "พรุ่งนี้", displayTime: "08:00 น."
-   - ตัวอย่าง: "ยกเลิกเตือน" -> type: "REMINDER", reminderAction: "CANCEL"
-   - ตัวอย่าง: "เตือนอะไรไว้บ้าง", "ดูรายการเตือน" -> type: "REMINDER", reminderAction: "LIST"
+   - เมื่อมีคำบอกเวลา เช่น "พรุ่งนี้", "วันนี้", "สี่โมง", "16:00", "20.00", "2 ทุ่ม", "9 โมง", "อย่าลืม..."
+   - ตัวอย่าง: "ไปเที่ยวพรุ่งนี้สี่โมง" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "ไปเที่ยว", displayDate: "พรุ่งนี้", displayTime: "16:00 น.", remindAtISO: (คำนวณ ISO วันพรุ่งนี้เวลา 16:00:00+07:00)
+   - ตัวอย่าง: "เล่นเกม 20.00" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "เล่นเกม", displayDate: "วันนี้", displayTime: "20:00 น.", remindAtISO: (คำนวณ ISO วันนี้เวลา 20:00:00+07:00)
+   - ตัวอย่าง: "อย่าลืมกินยา 2 ทุ่ม" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "กินยา", displayDate: "วันนี้", displayTime: "20:00 น."
+   - การแปลงคำบอกเวลาไทย:
+     * "สี่โมง" / "สี่โมงเย็น" / "บ่าย 4" -> 16:00 น.
+     * "บ่าย 3" / "บ่ายสาม" -> 15:00 น., "บ่าย 2" -> 14:00 น., "บ่ายโมง" -> 13:00 น.
+     * "5 โมงเย็น" / "ห้าโมงเย็น" -> 17:00 น., "6 โมงเย็น" -> 18:00 น.
+     * "1 ทุ่ม" -> 19:00 น., "2 ทุ่ม" -> 20:00 น., "3 ทุ่ม" -> 21:00 น., "4 ทุ่ม" -> 22:00 น.
+     * "20.00", "20.00 น.", "20:00" -> 20:00 น.
 
 3. type: "BRIEFING" (การขอสรุปยามเช้า / ภารกิจวันนี้)
    - เมื่อผู้ใช้ถาม: "สรุปเช้า", "สรุปวันนี้", "วันนี้มีอะไรบ้าง", "เช้านี้มีอะไรบ้าง", "morning brief", "briefing", "สรุปงานวันนี้", "สรุปภารกิจ"
-   - type: "BRIEFING"
 
 4. type: "GENERAL_CHAT" (การสนทนาทักทายทั่วไป หรือคำถามทั่วไป)
    - เช่น "สวัสดี", "ทำอะไรได้บ้าง", "ใครสร้างนาย"
    - replyText: ตอบรับอย่างสุภาพและเป็นมิตร พร้อมแนะนำตัวอย่างคำสั่งที่ทำได้
 `;
-
 
   const prompt = `${systemInstruction}
 
@@ -207,29 +155,134 @@ ${
 "${userMessage}"
 `;
 
-  const response = await model.generateContent(prompt);
-  const text = response.response.text();
+  // Multi-model fallback list to avoid 429 quota rate limits
+  const candidateModels = [
+    "gemini-flash-lite-latest",
+    "gemini-3.5-flash-lite",
+    "gemini-2.5-flash",
+  ];
 
-  try {
-    const rawJson = JSON.parse(text);
-    return AssistantResultSchema.parse(rawJson);
-  } catch (err) {
-    console.error("Error parsing Gemini assistant response:", err, "Raw response:", text);
-    return {
-      type: "GENERAL_CHAT",
-      reminderAction: null,
-      taskTitle: null,
-      remindAtISO: null,
-      displayDate: null,
-      displayTime: null,
-      recurrence: null,
-      noteAction: null,
-      noteTitle: null,
-      noteItems: null,
-      noteCategory: null,
-      replyText: "ขออภัยครับ ไม่สามารถเข้าใจคำสั่งได้ ต้องการให้ตั้งเตือนหรือจดโน้ตเรื่องอะไรครับ?",
-    };
+  let rawJson: any = null;
+
+  for (const modelName of candidateModels) {
+    try {
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: SchemaType.OBJECT,
+            properties: {
+              type: {
+                type: SchemaType.STRING,
+                format: "enum",
+                enum: ["REMINDER", "NOTE", "BRIEFING", "GENERAL_CHAT"],
+              },
+              reminderAction: {
+                type: SchemaType.STRING,
+                format: "enum",
+                enum: ["CREATE", "CANCEL", "EDIT", "LIST", "CLARIFY"],
+                nullable: true,
+              },
+              taskTitle: { type: SchemaType.STRING, nullable: true },
+              remindAtISO: { type: SchemaType.STRING, nullable: true },
+              displayDate: { type: SchemaType.STRING, nullable: true },
+              displayTime: { type: SchemaType.STRING, nullable: true },
+              recurrence: {
+                type: SchemaType.STRING,
+                format: "enum",
+                enum: ["NONE", "DAILY", "WEEKLY", "MONTHLY"],
+                nullable: true,
+              },
+              noteAction: {
+                type: SchemaType.STRING,
+                format: "enum",
+                enum: ["CREATE", "LIST", "DELETE"],
+                nullable: true,
+              },
+              noteTitle: { type: SchemaType.STRING, nullable: true },
+              noteItems: {
+                type: SchemaType.ARRAY,
+                items: { type: SchemaType.STRING },
+                nullable: true,
+              },
+              noteCategory: {
+                type: SchemaType.STRING,
+                format: "enum",
+                enum: ["SHOPPING", "TODO", "GENERAL"],
+                nullable: true,
+              },
+              replyText: { type: SchemaType.STRING, nullable: true },
+            },
+            required: ["type"],
+          },
+        },
+      });
+
+      const response = await model.generateContent(prompt);
+      const text = response.response.text();
+      rawJson = JSON.parse(text);
+      break;
+    } catch (err: any) {
+      console.warn(`Model ${modelName} failed (${err.message?.slice(0, 80)}), trying fallback...`);
+    }
   }
+
+  if (rawJson) {
+    try {
+      return AssistantResultSchema.parse(rawJson);
+    } catch (zodErr) {
+      console.error("Zod schema parse failed on rawJson:", zodErr, rawJson);
+    }
+  }
+
+  // Smart Heuristic Fallback if all AI models hit rate limits or network issues
+  const cleanMsg = userMessage.trim();
+
+  // If user mentioned "อย่าลืม" or "จด" or space-separated items
+  if (
+    cleanMsg.startsWith("จดโน้ต") ||
+    cleanMsg.startsWith("จดโน๊ต") ||
+    cleanMsg.startsWith("บันทึก") ||
+    cleanMsg.startsWith("อย่าลืม") ||
+    cleanMsg.includes(" ")
+  ) {
+    const withoutPrefix = cleanMsg
+      .replace(/^(จดโน้ต|จดโน๊ต|บันทึก|อย่าลืม|โน้ต|โน๊ต)/g, "")
+      .trim();
+
+    const items = withoutPrefix
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (items.length > 0) {
+      return {
+        type: "NOTE",
+        noteAction: "CREATE",
+        noteTitle: "โน้ตบันทึก",
+        noteItems: items,
+        noteCategory: "GENERAL",
+        replyText: null,
+      };
+    }
+  }
+
+  return {
+    type: "GENERAL_CHAT",
+    reminderAction: null,
+    taskTitle: null,
+    remindAtISO: null,
+    displayDate: null,
+    displayTime: null,
+    recurrence: null,
+    noteAction: null,
+    noteTitle: null,
+    noteItems: null,
+    noteCategory: null,
+    replyText: "ขออภัยครับ ไม่สามารถเข้าใจคำสั่งได้ ต้องการให้ตั้งเตือนหรือจดโน้ตเรื่องอะไรครับ?",
+  };
 }
 
 /**
@@ -278,4 +331,5 @@ export async function parseReminderIntent(
 }
 
 export const parseReminderWithAI = parseReminderIntent;
+
 
