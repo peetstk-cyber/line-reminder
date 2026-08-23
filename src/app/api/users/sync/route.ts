@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -11,19 +11,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "lineUserId is required" }, { status: 400 });
     }
 
-    const user = await prisma.user.upsert({
-      where: { lineUserId },
-      update: {
-        ...(displayName ? { displayName } : {}),
-        ...(pictureUrl ? { pictureUrl } : {}),
-      },
-      create: {
-        lineUserId,
-        displayName: displayName || "LINE User",
-        pictureUrl,
-      },
-    });
-
+    const user = await db.upsertUser(lineUserId, displayName, pictureUrl);
     return NextResponse.json({ user });
   } catch (err) {
     console.error("Error syncing LIFF user:", err);

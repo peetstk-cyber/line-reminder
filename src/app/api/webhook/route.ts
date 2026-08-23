@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { WebhookRequestBody, WebhookEvent, MessageEvent, PostbackEvent } from "@line/bot-sdk";
-import { prisma } from "@/lib/prisma";
+import { WebhookRequestBody, WebhookEvent, PostbackEvent } from "@line/bot-sdk";
+import { db } from "@/lib/db";
 import { lineMessagingClient } from "@/lib/line";
 import { parseReminderIntent } from "@/lib/ai/reminderParser";
 import { createReminderSuccessCard } from "@/lib/line/flexTemplates";
@@ -45,21 +45,18 @@ export async function POST(req: NextRequest) {
 
   const events: WebhookEvent[] = body.events || [];
 
-  // If this is a LINE Verify ping (events is empty), return 200 OK immediately
   if (events.length === 0) {
     return NextResponse.json({ status: "ok", message: "Webhook verified" });
   }
 
-  // Process all incoming events concurrently
-  await Promise.all(
-    events.map(async (event) => {
-      try {
-        await handleEvent(event);
-      } catch (err) {
-        console.error("Error processing LINE event:", err, "Event:", JSON.stringify(event));
-      }
-    })
-  );
+  // Process events
+  for (const event of events) {
+    try {
+      await handleEvent(event);
+    } catch (err) {
+      console.error("Error processing LINE event:", err);
+    }
+  }
 
   return NextResponse.json({ status: "success" });
 }
@@ -69,30 +66,13 @@ async function handleEvent(event: WebhookEvent) {
   if (!lineUserId) return;
 
   // 1. Upsert User in database
-  let user = await prisma.user.findUnique({
-    where: { lineUserId },
-  });
-
-  if (!user) {
-    // Optionally fetch profile from LINE API
-    let displayName = "LINE User";
-    let pictureUrl: string | undefined = undefined;
-
-    try {
-      const profile = await lineMessagingClient.getProfile(lineUserId);
-      displayName = profile.displayName;
-      pictureUrl = profile.pictureUrl;
-    } catch {
-      // Fallback silently if profile fetch fails
-    }
-
-    user = await prisma.user.create({
-      data: {
-        lineUserId,
-        displayName,
-        pictureUrl,
-      },
-    });
+  let user;
+  try {
+    user = await db.upsertUser(lineUserId);
+  } catch (err) {
+    console.error("Failed to upsert user:", err);
+    // Fallback user object
+    user = { id: lineUserId, lineUserId, displayName: "LINE User", pictureUrl: null, createdAt: new Date().toISOString() };
   }
 
   // 2. Handle Message Event
@@ -100,7 +80,7 @@ async function handleEvent(event: WebhookEvent) {
     await handleTextMessage(event.replyToken, event.message.text, user.id);
   }
 
-  // 3. Handle Postback Event (Buttons click e.g. Cancel or Complete)
+  // 3. Handle Postback Event
   if (event.type === "postback") {
     await handlePostback(event);
   }
@@ -110,32 +90,29 @@ async function handleTextMessage(replyToken: string, userText: string, userId: s
   const trimmedText = userText.trim();
 
   // วิเคราะห์ Intent และแปลงเวลาด้วย Gemini AI
-  const parsed = await parseReminderIntent(userText, "Asia/Bangkok");
+  const parsed = await parseReminderIntent(trimmedText, "Asia/Bangkok");
 
   switch (parsed.action) {
     case "CREATE": {
       if (parsed.remindAtISO) {
         const remindAt = new Date(parsed.remindAtISO);
 
-        const reminder = await prisma.reminder.create({
-          data: {
-            userId,
-            taskTitle: parsed.taskTitle,
-            remindAt,
-            displayDate: parsed.displayDate,
-            displayTime: parsed.displayTime,
-            recurrence: parsed.recurrence,
-            status: "PENDING",
-          },
+        const reminder = await db.createReminder({
+          userId,
+          taskTitle: parsed.taskTitle,
+          remindAt,
+          displayDate: parsed.displayDate,
+          displayTime: parsed.displayTime,
+          recurrence: parsed.recurrence,
+          status: "PENDING",
         });
 
-        const flexMessage = createReminderSuccessCard(reminder);
+        const flexMessage = createReminderSuccessCard(reminder as any);
         await lineMessagingClient.replyMessage({
           replyToken,
           messages: [flexMessage],
         });
       } else {
-        // ขาดเวลา -> ส่งคำถามกลับ
         await lineMessagingClient.replyMessage({
           replyToken,
           messages: [
@@ -167,16 +144,10 @@ async function handleTextMessage(replyToken: string, userText: string, userId: s
     }
 
     case "CANCEL": {
-      const latestPending = await prisma.reminder.findFirst({
-        where: { userId, status: "PENDING" },
-        orderBy: { createdAt: "desc" },
-      });
+      const latestPending = await db.findLatestPendingReminder(userId);
 
       if (latestPending) {
-        await prisma.reminder.update({
-          where: { id: latestPending.id },
-          data: { status: "CANCELLED" },
-        });
+        await db.updateReminder(latestPending.id, { status: "CANCELLED" });
 
         await lineMessagingClient.replyMessage({
           replyToken,
@@ -202,11 +173,7 @@ async function handleTextMessage(replyToken: string, userText: string, userId: s
     }
 
     case "LIST": {
-      const pendingReminders = await prisma.reminder.findMany({
-        where: { userId, status: "PENDING" },
-        orderBy: { remindAt: "asc" },
-        take: 5,
-      });
+      const pendingReminders = await db.findRemindersByUserId(userId, "all");
 
       if (pendingReminders.length === 0) {
         await lineMessagingClient.replyMessage({
@@ -220,6 +187,7 @@ async function handleTextMessage(replyToken: string, userText: string, userId: s
         });
       } else {
         const listText = pendingReminders
+          .slice(0, 5)
           .map((r, i) => `${i + 1}. 📌 ${r.taskTitle}\n   ⏰ ${r.displayDate || ""} ${r.displayTime || ""}`)
           .join("\n\n");
 
@@ -228,7 +196,7 @@ async function handleTextMessage(replyToken: string, userText: string, userId: s
           messages: [
             {
               type: "text",
-              text: `📋 รายการแจ้งเตือนที่กำลังจะมาถึง:\n\n${listText}`,
+              text: `📋 รายการแจ้งเตือนของคุณ:\n\n${listText}`,
             },
           ],
         });
@@ -262,17 +230,14 @@ async function handlePostback(event: PostbackEvent) {
 
   if (action === "cancel" && reminderId) {
     try {
-      const reminder = await prisma.reminder.update({
-        where: { id: reminderId },
-        data: { status: "CANCELLED" },
-      });
+      const reminder = await db.updateReminder(reminderId, { status: "CANCELLED" });
 
       await lineMessagingClient.replyMessage({
         replyToken,
         messages: [
           {
             type: "text",
-            text: `ยกเลิกการแจ้งเตือน "${reminder.taskTitle}" เรียบร้อยแล้วครับ ❌`,
+            text: `ยกเลิกการแจ้งเตือน "${reminder?.taskTitle || ""}" เรียบร้อยแล้วครับ ❌`,
           },
         ],
       });
@@ -292,17 +257,14 @@ async function handlePostback(event: PostbackEvent) {
 
   if (action === "complete" && reminderId) {
     try {
-      const reminder = await prisma.reminder.update({
-        where: { id: reminderId },
-        data: { status: "COMPLETED" },
-      });
+      const reminder = await db.updateReminder(reminderId, { status: "COMPLETED" });
 
       await lineMessagingClient.replyMessage({
         replyToken,
         messages: [
           {
             type: "text",
-            text: `🎉 เยี่ยมมากครับ! บันทึกว่าทำ "${reminder.taskTitle}" เสร็จเรียบร้อยแล้ว`,
+            text: `🎉 เยี่ยมมากครับ! บันทึกว่าทำ "${reminder?.taskTitle || ""}" เสร็จเรียบร้อยแล้ว`,
           },
         ],
       });
@@ -318,13 +280,10 @@ async function handlePostback(event: PostbackEvent) {
       const TIMEZONE = "Asia/Bangkok";
       const displayTime = formatInTimeZone(newRemindAt, TIMEZONE, "HH:mm น.");
 
-      const reminder = await prisma.reminder.update({
-        where: { id: reminderId },
-        data: {
-          remindAt: newRemindAt,
-          displayTime,
-          status: "PENDING",
-        },
+      const reminder = await db.updateReminder(reminderId, {
+        remindAt: newRemindAt,
+        displayTime,
+        status: "PENDING",
       });
 
       await lineMessagingClient.replyMessage({
@@ -332,7 +291,7 @@ async function handlePostback(event: PostbackEvent) {
         messages: [
           {
             type: "text",
-            text: `⏱️ เลื่อนการแจ้งเตือน "${reminder.taskTitle}" ออกไปอีก ${minutes} นาที (เป็นเวลา ${displayTime}) เรียบร้อยครับ`,
+            text: `⏱️ เลื่อนการแจ้งเตือน "${reminder?.taskTitle || ""}" ออกไปอีก ${minutes} นาที (เป็นเวลา ${displayTime}) เรียบร้อยครับ`,
           },
         ],
       });
@@ -341,4 +300,3 @@ async function handlePostback(event: PostbackEvent) {
     }
   }
 }
-

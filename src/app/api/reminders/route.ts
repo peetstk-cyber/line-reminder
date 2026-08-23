@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { parseReminderIntent } from "@/lib/ai/reminderParser";
-import { startOfDay, endOfDay, startOfWeek, endOfWeek } from "date-fns";
-import { toZonedTime, formatInTimeZone } from "date-fns-tz";
+import { formatInTimeZone } from "date-fns-tz";
 
 export const dynamic = "force-dynamic";
 
@@ -18,9 +17,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "lineUserId is required" }, { status: 400 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { lineUserId },
-    });
+    const user = await db.findUserByLineId(lineUserId);
 
     if (!user) {
       return NextResponse.json({
@@ -29,69 +26,12 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const now = new Date();
-    const zonedNow = toZonedTime(now, TIMEZONE);
-    const todayStart = startOfDay(zonedNow);
-    const todayEnd = endOfDay(zonedNow);
-    const weekStart = startOfWeek(zonedNow, { weekStartsOn: 1 });
-    const weekEnd = endOfWeek(zonedNow, { weekStartsOn: 1 });
+    const reminders = await db.findRemindersByUserId(user.id, filter);
+    const allReminders = await db.findRemindersByUserId(user.id, "all");
 
-    // Calculate stats
-    const [todayCount, totalPending, completedCount] = await Promise.all([
-      prisma.reminder.count({
-        where: {
-          userId: user.id,
-          status: "PENDING",
-          remindAt: {
-            gte: todayStart,
-            lte: todayEnd,
-          },
-        },
-      }),
-      prisma.reminder.count({
-        where: {
-          userId: user.id,
-          status: "PENDING",
-        },
-      }),
-      prisma.reminder.count({
-        where: {
-          userId: user.id,
-          status: "COMPLETED",
-        },
-      }),
-    ]);
-
-    // Build filter where clause
-    const whereClause: Record<string, unknown> = {
-      userId: user.id,
-    };
-
-    if (filter === "today") {
-      whereClause.status = "PENDING";
-      whereClause.remindAt = {
-        gte: todayStart,
-        lte: todayEnd,
-      };
-    } else if (filter === "week") {
-      whereClause.status = "PENDING";
-      whereClause.remindAt = {
-        gte: weekStart,
-        lte: weekEnd,
-      };
-    } else if (filter === "completed") {
-      whereClause.status = "COMPLETED";
-    } else {
-      // "all" - shows pending and recent completed, excluding cancelled
-      whereClause.status = {
-        in: ["PENDING", "COMPLETED"],
-      };
-    }
-
-    const reminders = await prisma.reminder.findMany({
-      where: whereClause,
-      orderBy: filter === "completed" ? { updatedAt: "desc" } : { remindAt: "asc" },
-    });
+    const todayCount = allReminders.filter((r) => r.status === "PENDING" && r.displayDate === formatInTimeZone(new Date(), TIMEZONE, "dd MMM yyyy")).length;
+    const totalPending = allReminders.filter((r) => r.status === "PENDING").length;
+    const completedCount = allReminders.filter((r) => r.status === "COMPLETED").length;
 
     return NextResponse.json({
       reminders,
@@ -116,31 +56,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "lineUserId is required" }, { status: 400 });
     }
 
-    let user = await prisma.user.findUnique({
-      where: { lineUserId },
-    });
+    const user = await db.upsertUser(lineUserId);
 
-    if (!user) {
-      user = await prisma.user.create({
-        data: { lineUserId },
-      });
-    }
-
-    // If natural language prompt is provided, parse with Gemini AI
     if (prompt && typeof prompt === "string") {
       const parsed = await parseReminderIntent(prompt, TIMEZONE);
 
       if (parsed.action === "CREATE" && parsed.remindAtISO) {
-        const reminder = await prisma.reminder.create({
-          data: {
-            userId: user.id,
-            taskTitle: parsed.taskTitle,
-            remindAt: new Date(parsed.remindAtISO),
-            displayDate: parsed.displayDate,
-            displayTime: parsed.displayTime,
-            recurrence: parsed.recurrence,
-            status: "PENDING",
-          },
+        const reminder = await db.createReminder({
+          userId: user.id,
+          taskTitle: parsed.taskTitle,
+          remindAt: new Date(parsed.remindAtISO),
+          displayDate: parsed.displayDate,
+          displayTime: parsed.displayTime,
+          recurrence: parsed.recurrence,
+          status: "PENDING",
         });
 
         return NextResponse.json({
@@ -159,7 +88,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Manual form submission
     if (!taskTitle || !remindAt) {
       return NextResponse.json(
         { error: "taskTitle and remindAt are required for manual creation" },
@@ -171,16 +99,14 @@ export async function POST(req: NextRequest) {
     const displayDate = formatInTimeZone(remindAtDate, TIMEZONE, "dd MMM yyyy");
     const displayTime = formatInTimeZone(remindAtDate, TIMEZONE, "HH:mm น.");
 
-    const reminder = await prisma.reminder.create({
-      data: {
-        userId: user.id,
-        taskTitle,
-        remindAt: remindAtDate,
-        displayDate,
-        displayTime,
-        recurrence: recurrence || "NONE",
-        status: "PENDING",
-      },
+    const reminder = await db.createReminder({
+      userId: user.id,
+      taskTitle,
+      remindAt: remindAtDate,
+      displayDate,
+      displayTime,
+      recurrence: recurrence || "NONE",
+      status: "PENDING",
     });
 
     return NextResponse.json({

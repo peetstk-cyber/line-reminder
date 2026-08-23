@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { formatInTimeZone } from "date-fns-tz";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ export async function PATCH(
     const body = await req.json();
     const { taskTitle, remindAt, status, recurrence } = body;
 
-    const dataToUpdate: Record<string, unknown> = {};
+    const dataToUpdate: Record<string, any> = {};
 
     if (taskTitle !== undefined) dataToUpdate.taskTitle = taskTitle;
     if (status !== undefined) dataToUpdate.status = status;
@@ -28,10 +28,7 @@ export async function PATCH(
       dataToUpdate.displayTime = formatInTimeZone(remindAtDate, TIMEZONE, "HH:mm น.");
     }
 
-    const updated = await prisma.reminder.update({
-      where: { id },
-      data: dataToUpdate,
-    });
+    const updated = await db.updateReminder(id, dataToUpdate);
 
     return NextResponse.json({ reminder: updated });
   } catch (err) {
@@ -46,11 +43,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = params;
-
-    await prisma.reminder.delete({
-      where: { id },
-    });
-
+    await db.deleteReminder(id);
     return NextResponse.json({ status: "deleted", id });
   } catch (err) {
     console.error("Error deleting reminder:", err);
