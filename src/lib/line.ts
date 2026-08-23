@@ -1,17 +1,17 @@
 import { messagingApi } from "@line/bot-sdk";
 
-const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN || "";
-const channelSecret = process.env.LINE_CHANNEL_SECRET || "";
+export function getLineMessagingClient(): messagingApi.MessagingApiClient {
+  const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN || "";
+  return new messagingApi.MessagingApiClient({
+    channelAccessToken,
+  });
+}
 
-export const lineMessagingClient = new messagingApi.MessagingApiClient({
-  channelAccessToken,
-});
+export function getLineBlobClient(): messagingApi.MessagingApiBlobClient {
+  const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN || "";
+  return new messagingApi.MessagingApiBlobClient({
+    channelAccessToken,
+  });
+}
 
-export const lineBlobClient = new messagingApi.MessagingApiBlobClient({
-  channelAccessToken,
-});
-
-export const lineConfig = {
-  channelAccessToken,
-  channelSecret,
-};
+export const lineMessagingClient = getLineMessagingClient();

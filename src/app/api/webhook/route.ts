@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { WebhookRequestBody, WebhookEvent, PostbackEvent } from "@line/bot-sdk";
 import { db } from "@/lib/db";
-import { lineMessagingClient } from "@/lib/line";
+import { getLineMessagingClient } from "@/lib/line";
 import { parseReminderIntent } from "@/lib/ai/reminderParser";
 import { createReminderSuccessCard } from "@/lib/line/flexTemplates";
 import { formatInTimeZone } from "date-fns-tz";
@@ -49,12 +49,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: "ok", message: "Webhook verified" });
   }
 
-  // Process events
   for (const event of events) {
     try {
       await handleEvent(event);
     } catch (err) {
-      console.error("Error processing LINE event:", err);
+      console.error("Error handling LINE event:", err);
     }
   }
 
@@ -65,31 +64,37 @@ async function handleEvent(event: WebhookEvent) {
   const lineUserId = event.source.userId;
   if (!lineUserId) return;
 
+  const lineClient = getLineMessagingClient();
+
   // 1. Upsert User in database
   let user;
   try {
     user = await db.upsertUser(lineUserId);
   } catch (err) {
     console.error("Failed to upsert user:", err);
-    // Fallback user object
     user = { id: lineUserId, lineUserId, displayName: "LINE User", pictureUrl: null, createdAt: new Date().toISOString() };
   }
 
   // 2. Handle Message Event
   if (event.type === "message" && event.message.type === "text") {
-    await handleTextMessage(event.replyToken, event.message.text, user.id);
+    await handleTextMessage(lineClient, event.replyToken, event.message.text, user.id);
   }
 
   // 3. Handle Postback Event
   if (event.type === "postback") {
-    await handlePostback(event);
+    await handlePostback(lineClient, event);
   }
 }
 
-async function handleTextMessage(replyToken: string, userText: string, userId: string) {
+async function handleTextMessage(
+  lineClient: ReturnType<typeof getLineMessagingClient>,
+  replyToken: string,
+  userText: string,
+  userId: string
+) {
   const trimmedText = userText.trim();
 
-  // วิเคราะห์ Intent และแปลงเวลาด้วย Gemini AI
+  // 1. วิเคราะห์ Intent และแปลงเวลาด้วย Gemini AI
   const parsed = await parseReminderIntent(trimmedText, "Asia/Bangkok");
 
   switch (parsed.action) {
@@ -97,23 +102,53 @@ async function handleTextMessage(replyToken: string, userText: string, userId: s
       if (parsed.remindAtISO) {
         const remindAt = new Date(parsed.remindAtISO);
 
-        const reminder = await db.createReminder({
-          userId,
-          taskTitle: parsed.taskTitle,
-          remindAt,
-          displayDate: parsed.displayDate,
-          displayTime: parsed.displayTime,
-          recurrence: parsed.recurrence,
-          status: "PENDING",
-        });
+        let reminder;
+        try {
+          reminder = await db.createReminder({
+            userId,
+            taskTitle: parsed.taskTitle,
+            remindAt,
+            displayDate: parsed.displayDate,
+            displayTime: parsed.displayTime,
+            recurrence: parsed.recurrence,
+            status: "PENDING",
+          });
+        } catch (dbErr) {
+          console.error("Failed to save reminder in DB:", dbErr);
+          reminder = {
+            id: "temp-" + Date.now(),
+            userId,
+            taskTitle: parsed.taskTitle,
+            remindAt: remindAt.toISOString(),
+            displayDate: parsed.displayDate,
+            displayTime: parsed.displayTime,
+            recurrence: parsed.recurrence,
+            status: "PENDING" as const,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+        }
 
-        const flexMessage = createReminderSuccessCard(reminder as any);
-        await lineMessagingClient.replyMessage({
-          replyToken,
-          messages: [flexMessage],
-        });
+        try {
+          const flexMessage = createReminderSuccessCard(reminder);
+          await lineClient.replyMessage({
+            replyToken,
+            messages: [flexMessage],
+          });
+        } catch (flexErr) {
+          console.error("Flex message failed, falling back to text:", flexErr);
+          await lineClient.replyMessage({
+            replyToken,
+            messages: [
+              {
+                type: "text",
+                text: `⏰ ตั้งเตือน "${reminder.taskTitle}" วันที่ ${reminder.displayDate || ""} เวลา ${reminder.displayTime || ""} เรียบร้อยแล้วครับ! 🌿`,
+              },
+            ],
+          });
+        }
       } else {
-        await lineMessagingClient.replyMessage({
+        await lineClient.replyMessage({
           replyToken,
           messages: [
             {
@@ -129,7 +164,7 @@ async function handleTextMessage(replyToken: string, userText: string, userId: s
     }
 
     case "CLARIFY": {
-      await lineMessagingClient.replyMessage({
+      await lineClient.replyMessage({
         replyToken,
         messages: [
           {
@@ -149,7 +184,7 @@ async function handleTextMessage(replyToken: string, userText: string, userId: s
       if (latestPending) {
         await db.updateReminder(latestPending.id, { status: "CANCELLED" });
 
-        await lineMessagingClient.replyMessage({
+        await lineClient.replyMessage({
           replyToken,
           messages: [
             {
@@ -159,7 +194,7 @@ async function handleTextMessage(replyToken: string, userText: string, userId: s
           ],
         });
       } else {
-        await lineMessagingClient.replyMessage({
+        await lineClient.replyMessage({
           replyToken,
           messages: [
             {
@@ -176,7 +211,7 @@ async function handleTextMessage(replyToken: string, userText: string, userId: s
       const pendingReminders = await db.findRemindersByUserId(userId, "all");
 
       if (pendingReminders.length === 0) {
-        await lineMessagingClient.replyMessage({
+        await lineClient.replyMessage({
           replyToken,
           messages: [
             {
@@ -191,7 +226,7 @@ async function handleTextMessage(replyToken: string, userText: string, userId: s
           .map((r, i) => `${i + 1}. 📌 ${r.taskTitle}\n   ⏰ ${r.displayDate || ""} ${r.displayTime || ""}`)
           .join("\n\n");
 
-        await lineMessagingClient.replyMessage({
+        await lineClient.replyMessage({
           replyToken,
           messages: [
             {
@@ -206,14 +241,14 @@ async function handleTextMessage(replyToken: string, userText: string, userId: s
 
     case "GENERAL_CHAT":
     default: {
-      await lineMessagingClient.replyMessage({
+      await lineClient.replyMessage({
         replyToken,
         messages: [
           {
             type: "text",
             text:
               parsed.clarificationQuestion ||
-              "สวัสดีครับ! ผมคือ AI Smart Reminder บอทช่วยจำ สามารถพิมพ์หรือส่งเสียงบอกสิ่งที่ต้องการให้เตือนพร้อมวันเวลาได้เลยครับ เช่น 'พรุ่งนี้ 2 ทุ่ม อ่านหนังสือ'",
+              "สวัสดีครับ! ผมคือ AI Smart Reminder บอทช่วยจำ สามารถพิมพ์บอกสิ่งที่ต้องการให้เตือนพร้อมวันเวลาได้เลยครับ เช่น 'พรุ่งนี้ 2 ทุ่ม อ่านหนังสือ'",
           },
         ],
       });
@@ -222,7 +257,7 @@ async function handleTextMessage(replyToken: string, userText: string, userId: s
   }
 }
 
-async function handlePostback(event: PostbackEvent) {
+async function handlePostback(lineClient: ReturnType<typeof getLineMessagingClient>, event: PostbackEvent) {
   const replyToken = event.replyToken;
   const data = new URLSearchParams(event.postback.data);
   const action = data.get("action");
@@ -232,7 +267,7 @@ async function handlePostback(event: PostbackEvent) {
     try {
       const reminder = await db.updateReminder(reminderId, { status: "CANCELLED" });
 
-      await lineMessagingClient.replyMessage({
+      await lineClient.replyMessage({
         replyToken,
         messages: [
           {
@@ -243,7 +278,7 @@ async function handlePostback(event: PostbackEvent) {
       });
     } catch (err) {
       console.error("Error cancelling reminder via postback:", err);
-      await lineMessagingClient.replyMessage({
+      await lineClient.replyMessage({
         replyToken,
         messages: [
           {
@@ -259,7 +294,7 @@ async function handlePostback(event: PostbackEvent) {
     try {
       const reminder = await db.updateReminder(reminderId, { status: "COMPLETED" });
 
-      await lineMessagingClient.replyMessage({
+      await lineClient.replyMessage({
         replyToken,
         messages: [
           {
@@ -286,7 +321,7 @@ async function handlePostback(event: PostbackEvent) {
         status: "PENDING",
       });
 
-      await lineMessagingClient.replyMessage({
+      await lineClient.replyMessage({
         replyToken,
         messages: [
           {

@@ -1,10 +1,12 @@
 import { messagingApi } from "@line/bot-sdk";
-import { Reminder } from "@prisma/client";
+import { DbReminder } from "../db";
 
 /**
  * สร้าง Flex Message การ์ดยืนยันการตั้งเตือนสำเร็จ (Theme สีเขียว Muted Matcha)
  */
-export function createReminderSuccessCard(reminder: Reminder): messagingApi.FlexMessage {
+export function createReminderSuccessCard(
+  reminder: DbReminder | { id: string; taskTitle: string; displayDate: string | null; displayTime: string | null; recurrence: string }
+): messagingApi.FlexMessage {
   const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
   const editUrl = liffId
     ? `https://liff.line.me/${liffId}?reminderId=${reminder.id}`
@@ -17,7 +19,51 @@ export function createReminderSuccessCard(reminder: Reminder): messagingApi.Flex
     MONTHLY: "เตือนทุกเดือน",
   };
 
+  const isRecurring = reminder.recurrence && reminder.recurrence !== "NONE";
   const recurrenceText = recurrenceTextMap[reminder.recurrence] || "ไม่เตือนซ้ำ";
+
+  const headerContents: messagingApi.FlexComponent[] = [
+    {
+      type: "box",
+      layout: "horizontal",
+      backgroundColor: "#3B5B3E", // Matcha Dark
+      width: "20px",
+      height: "20px",
+      cornerRadius: "10px",
+      alignItems: "center",
+      justifyContent: "center",
+      contents: [
+        {
+          type: "text",
+          text: "✓",
+          color: "#FFFFFF",
+          size: "xxs",
+          weight: "bold",
+          align: "center",
+        },
+      ],
+    },
+    {
+      type: "text",
+      text: "ตั้งเตือนแล้ว",
+      weight: "bold",
+      color: "#2C221E", // Mocha
+      size: "md",
+      margin: "md",
+      flex: 1,
+    },
+  ];
+
+  if (isRecurring) {
+    headerContents.push({
+      type: "text",
+      text: recurrenceText,
+      color: "#3B5B3E",
+      size: "xs",
+      align: "end",
+      weight: "bold",
+    });
+  }
 
   const bubble: messagingApi.FlexBubble = {
     type: "bubble",
@@ -28,45 +74,7 @@ export function createReminderSuccessCard(reminder: Reminder): messagingApi.Flex
       backgroundColor: "#D8E8D4", // Matcha Light
       paddingAll: "16px",
       alignItems: "center",
-      contents: [
-        {
-          type: "box",
-          layout: "horizontal",
-          backgroundColor: "#3B5B3E", // Matcha Dark
-          width: "20px",
-          height: "20px",
-          cornerRadius: "10px",
-          alignItems: "center",
-          justifyContent: "center",
-          contents: [
-            {
-              type: "text",
-              text: "✓",
-              color: "#FFFFFF",
-              size: "xxs",
-              weight: "bold",
-              align: "center",
-            },
-          ],
-        },
-        {
-          type: "text",
-          text: "ตั้งเตือนแล้ว",
-          weight: "bold",
-          color: "#2C221E", // Mocha
-          size: "md",
-          margin: "md",
-          flex: 1,
-        },
-        {
-          type: "text",
-          text: reminder.recurrence !== "NONE" ? recurrenceText : "",
-          color: "#3B5B3E",
-          size: "xs",
-          align: "end",
-          weight: "bold",
-        },
-      ],
+      contents: headerContents,
     },
     body: {
       type: "box",
@@ -76,7 +84,7 @@ export function createReminderSuccessCard(reminder: Reminder): messagingApi.Flex
       contents: [
         {
           type: "text",
-          text: reminder.taskTitle,
+          text: reminder.taskTitle || "สิ่งที่ต้องทำ",
           weight: "bold",
           size: "xl",
           color: "#2C221E", // Mocha
@@ -137,7 +145,7 @@ export function createReminderSuccessCard(reminder: Reminder): messagingApi.Flex
                 },
               ],
             },
-            ...(reminder.recurrence !== "NONE"
+            ...(isRecurring
               ? [
                   {
                     type: "box" as const,
@@ -219,7 +227,9 @@ export function createReminderSuccessCard(reminder: Reminder): messagingApi.Flex
 /**
  * สร้าง Flex Message สำหรับการแจ้งเตือนเมื่องานถึงเวลา (Alarm Notification Card)
  */
-export function createReminderAlertCard(reminder: Reminder): messagingApi.FlexMessage {
+export function createReminderAlertCard(
+  reminder: DbReminder | { id: string; taskTitle: string; displayDate: string | null; displayTime: string | null }
+): messagingApi.FlexMessage {
   const bubble: messagingApi.FlexBubble = {
     type: "bubble",
     size: "mega",
@@ -247,7 +257,7 @@ export function createReminderAlertCard(reminder: Reminder): messagingApi.FlexMe
       contents: [
         {
           type: "text",
-          text: reminder.taskTitle,
+          text: reminder.taskTitle || "แจ้งเตือน",
           weight: "bold",
           size: "xl",
           color: "#2C221E",
