@@ -3,7 +3,7 @@ import { z } from "zod";
 import { formatInTimeZone } from "date-fns-tz";
 
 export const AssistantResultSchema = z.object({
-  type: z.enum(["REMINDER", "NOTE", "GENERAL_CHAT"]).describe("ประเภทของคำสั่ง"),
+  type: z.enum(["REMINDER", "NOTE", "BRIEFING", "GENERAL_CHAT"]).describe("ประเภทของคำสั่ง"),
   
   // REMINDER DETAILS
   reminderAction: z
@@ -49,6 +49,48 @@ export async function parseAssistantIntent(
   userTimezone = "Asia/Bangkok",
   userHistory?: { role: "user" | "model"; text: string }[]
 ): Promise<AssistantResult> {
+  const normalized = userMessage.trim().toLowerCase();
+
+  // Fast-path keywords for instant response (<50ms) & saving AI quota
+  if (
+    normalized === "สรุปเช้า" ||
+    normalized === "สรุปวันนี้" ||
+    normalized === "วันนี้มีอะไรบ้าง" ||
+    normalized === "เช้านี้มีอะไรบ้าง" ||
+    normalized === "morning brief" ||
+    normalized === "briefing" ||
+    normalized === "สรุปภารกิจ"
+  ) {
+    return {
+      type: "BRIEFING",
+    };
+  }
+
+  if (
+    normalized === "ดูโน้ต" ||
+    normalized === "ดูโน๊ต" ||
+    normalized === "โน้ตทั้งหมด" ||
+    normalized === "โน๊ตทั้งหมด" ||
+    normalized === "มีโน้ตอะไรบ้าง"
+  ) {
+    return {
+      type: "NOTE",
+      noteAction: "LIST",
+    };
+  }
+
+  if (
+    normalized === "ดูรายการเตือน" ||
+    normalized === "เตือนอะไรไว้บ้าง" ||
+    normalized === "มีเตือนอะไรบ้าง" ||
+    normalized === "รายการเตือน"
+  ) {
+    return {
+      type: "REMINDER",
+      reminderAction: "LIST",
+    };
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not configured in environment variables");
@@ -66,7 +108,7 @@ export async function parseAssistantIntent(
           type: {
             type: SchemaType.STRING,
             format: "enum",
-            enum: ["REMINDER", "NOTE", "GENERAL_CHAT"],
+            enum: ["REMINDER", "NOTE", "BRIEFING", "GENERAL_CHAT"],
           },
           reminderAction: {
             type: SchemaType.STRING,
@@ -118,7 +160,7 @@ export async function parseAssistantIntent(
   const currentISO = formatInTimeZone(now, userTimezone, "yyyy-MM-dd'T'HH:mm:ssXXX");
 
   const systemInstruction = `
-คุณคือ AI Personal Assistant ผู้ช่วยอัจฉริยะสำหรับผู้ใช้งานคนไทยใน LINE รองรับทั้งระบบเตือนความจำ (Reminders) และระบบจดโน้ต/รายการของ (Notes & Lists)
+คุณคือ AI Personal Assistant ผู้ช่วยอัจฉริยะสำหรับผู้ใช้งานคนไทยใน LINE รองรับทั้งระบบเตือนความจำ (Reminders), ระบบจดโน้ต (Notes & Lists) และระบบสรุปยามเช้า (Morning Briefing)
 หน้าที่ของคุณคือวิเคราะห์ข้อความของผู้ใช้ แล้วแปลงเป็น JSON โครงสร้างตาม Schema อย่างแม่นยำ
 
 [บริบทวันและเวลาปัจจุบัน (Timezone: ${userTimezone}, UTC+7)]
@@ -141,17 +183,16 @@ export async function parseAssistantIntent(
    - ตัวอย่าง: "พรุ่งนี้ 8 โมง กินยา" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "กินยา", displayDate: "พรุ่งนี้", displayTime: "08:00 น."
    - ตัวอย่าง: "ยกเลิกเตือน" -> type: "REMINDER", reminderAction: "CANCEL"
    - ตัวอย่าง: "เตือนอะไรไว้บ้าง", "ดูรายการเตือน" -> type: "REMINDER", reminderAction: "LIST"
-   - การแปลงเวลาไทย:
-     * "20.00", "20.00 น.", "20:00" -> 20:00 น.
-     * "8.30", "08:30" -> 08:30 น.
-     * "1 ทุ่ม" -> 19:00, "2 ทุ่ม" -> 20:00, "3 ทุ่ม" -> 21:00, "4 ทุ่ม" -> 22:00
-     * "บ่ายโมง" -> 13:00, "บ่าย 2" -> 14:00, "บ่าย 3" -> 15:00, "บ่าย 4" -> 16:00, "5 โมงเย็น" -> 17:00, "6 โมงเย็น" -> 18:00
-     * ถ้าไม่มีวันที่ระบุ ให้ถือว่าเป็น "วันนี้" (ถ้าเวลายังไม่ผ่าน) หรือ "พรุ่งนี้" (ถ้าเวลาผ่านไปแล้ว)
 
-3. type: "GENERAL_CHAT" (การสนทนาทักทายทั่วไป หรือคำถามทั่วไป)
+3. type: "BRIEFING" (การขอสรุปยามเช้า / ภารกิจวันนี้)
+   - เมื่อผู้ใช้ถาม: "สรุปเช้า", "สรุปวันนี้", "วันนี้มีอะไรบ้าง", "เช้านี้มีอะไรบ้าง", "morning brief", "briefing", "สรุปงานวันนี้", "สรุปภารกิจ"
+   - type: "BRIEFING"
+
+4. type: "GENERAL_CHAT" (การสนทนาทักทายทั่วไป หรือคำถามทั่วไป)
    - เช่น "สวัสดี", "ทำอะไรได้บ้าง", "ใครสร้างนาย"
    - replyText: ตอบรับอย่างสุภาพและเป็นมิตร พร้อมแนะนำตัวอย่างคำสั่งที่ทำได้
 `;
+
 
   const prompt = `${systemInstruction}
 

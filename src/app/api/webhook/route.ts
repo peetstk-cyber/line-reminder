@@ -4,7 +4,11 @@ import { WebhookRequestBody, WebhookEvent, PostbackEvent } from "@line/bot-sdk";
 import { db } from "@/lib/db";
 import { getLineMessagingClient } from "@/lib/line";
 import { parseAssistantIntent } from "@/lib/ai/reminderParser";
-import { createReminderSuccessCard, createNoteSuccessCard } from "@/lib/line/flexTemplates";
+import {
+  createReminderSuccessCard,
+  createNoteSuccessCard,
+  createMorningBriefCard,
+} from "@/lib/line/flexTemplates";
 import { formatInTimeZone } from "date-fns-tz";
 import { neon } from "@neondatabase/serverless";
 
@@ -402,7 +406,42 @@ async function handleTextMessage(
   }
 
   // -------------------------------------------------------------
-  // CASE 3: GENERAL_CHAT หรือ สนทนาทั่วไป
+  // CASE 3: BRIEFING (สรุปยามเช้า / ภารกิจวันนี้)
+  // -------------------------------------------------------------
+  if (assistant.type === "BRIEFING") {
+    const briefData = await db.findMorningBriefData(userId);
+    const dateStr = formatInTimeZone(new Date(), "Asia/Bangkok", "EEEEที่ dd MMMM yyyy");
+    const card = createMorningBriefCard({
+      displayName: user.displayName || "คุณ",
+      dateStr,
+      todayReminders: briefData.todayReminders,
+      pendingNotes: briefData.pendingNotes,
+    });
+
+    try {
+      await lineClient.replyMessage({
+        replyToken,
+        messages: [card],
+      });
+    } catch (flexErr) {
+      console.error("Morning brief flex failed:", flexErr);
+      const remCount = briefData.todayReminders.length;
+      const todoCount = briefData.pendingNotes.reduce((acc, n) => acc + n.pendingItems.length, 0);
+      await lineClient.replyMessage({
+        replyToken,
+        messages: [
+          {
+            type: "text",
+            text: `🌅 สรุปประจำวัน (${dateStr}):\n\n⏰ นัดหมายวันนี้: ${remCount} รายการ\n📝 To-Do ค้างอยู่: ${todoCount} รายการ`,
+          },
+        ],
+      });
+    }
+    return;
+  }
+
+  // -------------------------------------------------------------
+  // CASE 4: GENERAL_CHAT หรือ สนทนาทั่วไป
   // -------------------------------------------------------------
   await lineClient.replyMessage({
     replyToken,
@@ -411,7 +450,7 @@ async function handleTextMessage(
         type: "text",
         text:
           assistant.replyText ||
-          "สวัสดีครับ! ผมคือ AI Personal Assistant ผู้ช่วยส่วนตัวของคุณ 🌿\n\nสามารถบอกผมได้เลย เช่น:\n⏰ 'พรุ่งนี้ 9 โมง นัดประชุม'\n📝 'จดโน้ต ซื้อไข่ไก่ นม ขนมปัง'",
+          "สวัสดีครับ! ผมคือ AI Personal Assistant ผู้ช่วยส่วนตัวของคุณ 🌿\n\nสามารถบอกผมได้เลย เช่น:\n⏰ 'พรุ่งนี้ 9 โมง นัดประชุม'\n📝 'จดโน้ต ซื้อไข่ไก่ นม ขนมปัง'\n🌅 'สรุปวันนี้'",
       },
     ],
   });

@@ -326,5 +326,57 @@ export const db = {
     await sql`DELETE FROM "notes" WHERE "id" = ${id};`;
     return true;
   },
+
+  // ===================== MORNING BRIEF HELPERS =====================
+  async findAllUsers(): Promise<DbUser[]> {
+    const sql = getSql();
+    const rows = await sql`SELECT * FROM "users";`;
+    return rows as DbUser[];
+  },
+
+  async findMorningBriefData(userId: string): Promise<{
+    todayReminders: DbReminder[];
+    pendingNotes: { id: string; title: string; category: string; pendingItems: string[] }[];
+  }> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+
+    // Today's pending reminders (Thailand timezone UTC+7)
+    const reminderRows = await sql`
+      SELECT * FROM "reminders"
+      WHERE "userId" = ${userId}
+        AND "status" = 'PENDING'
+        AND ("remindAt" AT TIME ZONE 'Asia/Bangkok')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok')::date
+      ORDER BY "remindAt" ASC;
+    `;
+
+    // Notes with incomplete items
+    const noteRows = await sql`
+      SELECT * FROM "notes"
+      WHERE "userId" = ${userId}
+      ORDER BY "isPinned" DESC, "updatedAt" DESC;
+    `;
+
+    const pendingNotes: { id: string; title: string; category: string; pendingItems: string[] }[] = [];
+
+    for (const note of noteRows as DbNote[]) {
+      const items: DbNoteItem[] = Array.isArray(note.items) ? note.items : [];
+      const pending = items.filter((it) => !it.completed).map((it) => it.text);
+      if (pending.length > 0) {
+        pendingNotes.push({
+          id: note.id,
+          title: note.title,
+          category: note.category,
+          pendingItems: pending,
+        });
+      }
+    }
+
+    return {
+      todayReminders: reminderRows as DbReminder[],
+      pendingNotes,
+    };
+  },
 };
+
 

@@ -490,7 +490,7 @@ export default function LiffDashboard() {
             }`}
           >
             <CheckSquare className="w-4 h-4" />
-            <span>โน้ต & ซื้อของ</span>
+            <span>โน้ต</span>
             {notes.length > 0 && (
               <span className="bg-sand text-mocha-muted text-[10px] px-1.5 py-0.2 rounded-full font-bold">
                 {notes.length}
@@ -718,7 +718,7 @@ export default function LiffDashboard() {
                   <div className="w-8 h-8 rounded-xl bg-matcha-subtle text-matcha-dark flex items-center justify-center group-hover:scale-105 transition-transform">
                     <Plus className="w-5 h-5" />
                   </div>
-                  <span>สร้างโน้ต / รายการซื้อของใหม่</span>
+                  <span>สร้างโน้ตใหม่</span>
                 </div>
                 <span className="text-xs text-mocha-muted font-normal">กดเพื่อเขียน 📝</span>
               </button>

@@ -2,11 +2,263 @@ import { messagingApi } from "@line/bot-sdk";
 import { DbReminder, DbNote } from "../db";
 
 /**
+ * สร้าง Flex Message สรุปยามเช้า (Daily Morning Briefing - 06:00 น.)
+ */
+export function createMorningBriefCard(data: {
+  displayName?: string;
+  dateStr: string;
+  todayReminders: DbReminder[];
+  pendingNotes: { id: string; title: string; category: string; pendingItems: string[] }[];
+}): messagingApi.FlexMessage {
+  const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
+  const liffUrl = liffId ? `https://liff.line.me/${liffId}` : `https://line.me`;
+
+  const { displayName = "คุณ", dateStr, todayReminders, pendingNotes } = data;
+
+  // 1. Reminders Box
+  const reminderContents: messagingApi.FlexComponent[] = [
+    {
+      type: "box",
+      layout: "horizontal",
+      alignItems: "center",
+      spacing: "sm",
+      margin: "md",
+      contents: [
+        {
+          type: "text",
+          text: "⏰ นัดหมายและเตือนความจำวันนี้",
+          weight: "bold",
+          size: "sm",
+          color: "#3B5B3E",
+          flex: 1,
+        },
+        {
+          type: "text",
+          text: `${todayReminders.length} รายการ`,
+          size: "xs",
+          color: "#766E65",
+          align: "end",
+        },
+      ],
+    },
+  ];
+
+  if (todayReminders.length === 0) {
+    reminderContents.push({
+      type: "text",
+      text: "✨ วันนี้ไม่มีนัดหมายหรือการแจ้งเตือน",
+      size: "xs",
+      color: "#A39E98",
+      margin: "sm",
+    });
+  } else {
+    todayReminders.slice(0, 5).forEach((r) => {
+      reminderContents.push({
+        type: "box",
+        layout: "horizontal",
+        spacing: "md",
+        margin: "sm",
+        contents: [
+          {
+            type: "text",
+            text: r.displayTime || "-",
+            size: "xs",
+            weight: "bold",
+            color: "#3B5B3E",
+            flex: 3,
+          },
+          {
+            type: "text",
+            text: r.taskTitle,
+            size: "xs",
+            color: "#2C221E",
+            wrap: true,
+            flex: 7,
+          },
+        ],
+      });
+    });
+  }
+
+  // 2. Pending Notes Box
+  const allPendingItems: { noteTitle: string; itemText: string }[] = [];
+  pendingNotes.forEach((n) => {
+    n.pendingItems.forEach((it) => {
+      allPendingItems.push({ noteTitle: n.title, itemText: it });
+    });
+  });
+
+  const todoContents: messagingApi.FlexComponent[] = [
+    {
+      type: "box",
+      layout: "horizontal",
+      alignItems: "center",
+      spacing: "sm",
+      margin: "xl",
+      contents: [
+        {
+          type: "text",
+          text: "📝 สิ่งที่ต้องทำ (To-Do ค้างอยู่)",
+          weight: "bold",
+          size: "sm",
+          color: "#3B5B3E",
+          flex: 1,
+        },
+        {
+          type: "text",
+          text: `${allPendingItems.length} รายการ`,
+          size: "xs",
+          color: "#766E65",
+          align: "end",
+        },
+      ],
+    },
+  ];
+
+  if (allPendingItems.length === 0) {
+    todoContents.push({
+      type: "text",
+      text: "🎉 ไม่มีรายการค้าง ทำครบหมดแล้ว!",
+      size: "xs",
+      color: "#A39E98",
+      margin: "sm",
+    });
+  } else {
+    allPendingItems.slice(0, 5).forEach((it) => {
+      todoContents.push({
+        type: "box",
+        layout: "horizontal",
+        spacing: "sm",
+        margin: "sm",
+        contents: [
+          {
+            type: "text",
+            text: "☐",
+            size: "xs",
+            color: "#766E65",
+            flex: 1,
+          },
+          {
+            type: "text",
+            text: it.itemText,
+            size: "xs",
+            color: "#2C221E",
+            wrap: true,
+            flex: 9,
+          },
+        ],
+      });
+    });
+
+    if (allPendingItems.length > 5) {
+      todoContents.push({
+        type: "text",
+        text: `...และอีก ${allPendingItems.length - 5} รายการ`,
+        size: "xxs",
+        color: "#766E65",
+        margin: "sm",
+      });
+    }
+  }
+
+  const bubble: messagingApi.FlexBubble = {
+    type: "bubble",
+    size: "mega",
+    header: {
+      type: "box",
+      layout: "vertical",
+      backgroundColor: "#D8E8D4",
+      paddingAll: "16px",
+      contents: [
+        {
+          type: "box",
+          layout: "horizontal",
+          alignItems: "center",
+          contents: [
+            {
+              type: "text",
+              text: "🌅 สรุปยามเช้า",
+              weight: "bold",
+              color: "#2C221E",
+              size: "lg",
+              flex: 1,
+            },
+            {
+              type: "text",
+              text: "06:00 น.",
+              size: "xs",
+              color: "#3B5B3E",
+              weight: "bold",
+              align: "end",
+            },
+          ],
+        },
+        {
+          type: "text",
+          text: `อรุณสวัสดิ์ครับ ${displayName} 🌿 วันนี้ ${dateStr}`,
+          size: "xs",
+          color: "#766E65",
+          margin: "xs",
+        },
+      ],
+    },
+    body: {
+      type: "box",
+      layout: "vertical",
+      backgroundColor: "#F8F9F5",
+      paddingAll: "16px",
+      contents: [
+        ...reminderContents,
+        {
+          type: "separator",
+          margin: "lg",
+          color: "#EFEBE4",
+        },
+        ...todoContents,
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "horizontal",
+      backgroundColor: "#F8F9F5",
+      paddingAll: "16px",
+      contents: [
+        {
+          type: "button",
+          style: "primary",
+          height: "sm",
+          color: "#3B5B3E",
+          action: {
+            type: "uri",
+            label: "📱 เปิดดู Dashboard ทั้งหมด",
+            uri: liffUrl,
+          },
+          flex: 1,
+        },
+      ],
+    },
+    styles: {
+      footer: {
+        separator: true,
+        separatorColor: "#EFEBE4",
+      },
+    },
+  };
+
+  return {
+    type: "flex",
+    altText: `🌅 สรุปยามเช้าประจำวันที่ ${dateStr} ของคุณ ${displayName}`,
+    contents: bubble,
+  };
+}
+
+/**
  * สร้าง Flex Message สำหรับโน้ตที่บันทึกสำเร็จ (Note Card)
  */
 export function createNoteSuccessCard(
   note: DbNote | { id: string; title: string; items: { id: string; text: string; completed: boolean }[]; category: string }
 ): messagingApi.FlexMessage {
+
   const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
   const liffUrl = liffId ? `https://liff.line.me/${liffId}?tab=notes` : `https://line.me`;
 
