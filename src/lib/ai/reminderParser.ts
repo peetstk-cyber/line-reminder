@@ -2,6 +2,15 @@ import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { z } from "zod";
 import { formatInTimeZone } from "date-fns-tz";
 
+export const DebtItemEntrySchema = z.object({
+  personName: z.string(),
+  amount: z.number(),
+  debtType: z.enum(["LENT", "BORROWED"]).default("LENT"),
+  debtDescription: z.string().nullish(),
+});
+
+export type DebtItemEntry = z.infer<typeof DebtItemEntrySchema>;
+
 export const AssistantResultSchema = z.object({
   type: z.enum(["REMINDER", "NOTE", "DEBT", "BRIEFING", "GENERAL_CHAT"]).describe("ประเภทของคำสั่ง"),
   
@@ -31,6 +40,7 @@ export const AssistantResultSchema = z.object({
   personName: z.string().nullish().describe("ชื่อคนที่ยืมหรือให้ยืม เช่น 'ปิ่น', 'ก้อง', 'แฮม'"),
   amount: z.number().nullish().describe("จำนวนเงินบาท เช่น 50, 20, 60"),
   debtDescription: z.string().nullish().describe("หมายเหตุ เช่น 'ค่ากาแฟ', 'ค่าข้าว'"),
+  debtItems: z.array(DebtItemEntrySchema).nullish().describe("รายการหนี้สินสำหรับบันทึกหลายคนพร้อมกัน"),
 
   replyText: z.string().nullish().describe("ข้อความตอบกลับหรือคำถามเพิ่มเติมที่สุภาพและเป็นกันเอง"),
 });
@@ -113,7 +123,74 @@ export async function parseAssistantIntent(
     };
   }
 
-  // Fast-path Regex for Debt Patterns (<5ms instant response)
+  // Fast-path Multi-Line / Multi-Person Debt Detection
+  const rawLines = userMessage
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const excludedDebtKeywords = [
+    "เตือน", "โน้ต", "โน๊ต", "ประชุม", "นัด", "ซื้อ", "ส่ง", "โทร",
+    "กิน", "ทำ", "วิ่ง", "นอน", "ตื่น", "อ่าน", "เรียน", "วันนี้", "พรุ่งนี้",
+    "กี่", "ตอน", "อีก", "นาที", "ชั่วโมง"
+  ];
+
+  if (rawLines.length > 1) {
+    const multiItems: DebtItemEntry[] = [];
+    for (const line of rawLines) {
+      const weBorrow = line.match(
+        /^(?:เรายืม|ผมยืม|ยืม|ติดเงิน|ติดตังค์)\s*([ก-๙a-zA-Z]+?)\s*(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)?(?:\s+(.+))?$/
+      );
+      if (weBorrow) {
+        multiItems.push({
+          personName: weBorrow[1],
+          amount: parseFloat(weBorrow[2]),
+          debtType: "BORROWED",
+          debtDescription: weBorrow[3] || "ยืมเงิน",
+        });
+        continue;
+      }
+
+      const theyBorrow = line.match(
+        /^([ก-๙a-zA-Z]+?)\s*ยืม\s*(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)?(?:\s+(.+))?$/
+      );
+      if (theyBorrow) {
+        multiItems.push({
+          personName: theyBorrow[1],
+          amount: parseFloat(theyBorrow[2]),
+          debtType: "LENT",
+          debtDescription: theyBorrow[3] || "ยืมเงิน",
+        });
+        continue;
+      }
+
+      const quickMatch = line.match(
+        /^([ก-๙a-zA-Z]+?)\s*(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)?(?:\s+(.+))?$/
+      );
+      if (quickMatch && !excludedDebtKeywords.includes(quickMatch[1]) && quickMatch[1].length >= 2) {
+        multiItems.push({
+          personName: quickMatch[1],
+          amount: parseFloat(quickMatch[2]),
+          debtType: "LENT",
+          debtDescription: quickMatch[3] || "ยืมเงิน",
+        });
+      }
+    }
+
+    if (multiItems.length > 0) {
+      return {
+        type: "DEBT",
+        debtAction: "CREATE",
+        debtType: multiItems[0].debtType,
+        personName: multiItems[0].personName,
+        amount: multiItems[0].amount,
+        debtDescription: multiItems[0].debtDescription,
+        debtItems: multiItems,
+      };
+    }
+  }
+
+  // Fast-path Single Debt Patterns (<5ms instant response)
   const trimmed = userMessage.trim();
 
   // Pattern 1: เรายืม <คน> <เงิน> [เหตุผล]
@@ -121,13 +198,20 @@ export async function parseAssistantIntent(
     /^(?:เรายืม|ผมยืม|ยืม|ติดเงิน|ติดตังค์)\s*([ก-๙a-zA-Z]+?)\s*(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)?(?:\s+(.+))?$/
   );
   if (weBorrowMatch) {
+    const item: DebtItemEntry = {
+      personName: weBorrowMatch[1],
+      amount: parseFloat(weBorrowMatch[2]),
+      debtType: "BORROWED",
+      debtDescription: weBorrowMatch[3] || "ยืมเงิน",
+    };
     return {
       type: "DEBT",
       debtAction: "CREATE",
-      debtType: "BORROWED",
-      personName: weBorrowMatch[1],
-      amount: parseFloat(weBorrowMatch[2]),
-      debtDescription: weBorrowMatch[3] || "ยืมเงิน",
+      debtType: item.debtType,
+      personName: item.personName,
+      amount: item.amount,
+      debtDescription: item.debtDescription,
+      debtItems: [item],
     };
   }
 
@@ -136,13 +220,20 @@ export async function parseAssistantIntent(
     /^([ก-๙a-zA-Z]+?)\s*ยืม\s*(\d+(?:\.\d+)?)\s*(?:บาท|บ\.)?(?:\s+(.+))?$/
   );
   if (theyBorrowMatch) {
+    const item: DebtItemEntry = {
+      personName: theyBorrowMatch[1],
+      amount: parseFloat(theyBorrowMatch[2]),
+      debtType: "LENT",
+      debtDescription: theyBorrowMatch[3] || "ยืมเงิน",
+    };
     return {
       type: "DEBT",
       debtAction: "CREATE",
-      debtType: "LENT",
-      personName: theyBorrowMatch[1],
-      amount: parseFloat(theyBorrowMatch[2]),
-      debtDescription: theyBorrowMatch[3] || "ยืมเงิน",
+      debtType: item.debtType,
+      personName: item.personName,
+      amount: item.amount,
+      debtDescription: item.debtDescription,
+      debtItems: [item],
     };
   }
 
@@ -152,19 +243,21 @@ export async function parseAssistantIntent(
   );
   if (quickDebtMatch) {
     const name = quickDebtMatch[1];
-    const excludedKeywords = [
-      "เตือน", "โน้ต", "โน๊ต", "ประชุม", "นัด", "ซื้อ", "ส่ง", "โทร",
-      "กิน", "ทำ", "วิ่ง", "นอน", "ตื่น", "อ่าน", "เรียน", "วันนี้", "พรุ่งนี้",
-      "กี่", "ตอน", "อีก", "นาที", "ชั่วโมง"
-    ];
-    if (!excludedKeywords.includes(name) && name.length >= 2) {
+    if (!excludedDebtKeywords.includes(name) && name.length >= 2) {
+      const item: DebtItemEntry = {
+        personName: name,
+        amount: parseFloat(quickDebtMatch[2]),
+        debtType: "LENT",
+        debtDescription: quickDebtMatch[3] || "ยืมเงิน",
+      };
       return {
         type: "DEBT",
         debtAction: "CREATE",
-        debtType: "LENT",
-        personName: name,
-        amount: parseFloat(quickDebtMatch[2]),
-        debtDescription: quickDebtMatch[3] || "ยืมเงิน",
+        debtType: item.debtType,
+        personName: item.personName,
+        amount: item.amount,
+        debtDescription: item.debtDescription,
+        debtItems: [item],
       };
     }
   }

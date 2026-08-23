@@ -267,8 +267,27 @@ async function handleTextMessage(
   // -------------------------------------------------------------
   if (assistant.type === "DEBT") {
     // 1. สร้างรายการหนี้ใหม่ (CREATE)
-    if (assistant.debtAction === "CREATE" || (!assistant.debtAction && assistant.personName && assistant.amount)) {
-      if (!assistant.personName || !assistant.amount) {
+    // 1. สร้างรายการหนี้ใหม่ (CREATE) - รองรับทั้ง 1 คน และหลายคนพร้อมกัน
+    if (
+      assistant.debtAction === "CREATE" ||
+      (assistant.debtItems && assistant.debtItems.length > 0) ||
+      (!assistant.debtAction && assistant.personName && assistant.amount)
+    ) {
+      const itemsToCreate =
+        assistant.debtItems && assistant.debtItems.length > 0
+          ? assistant.debtItems
+          : assistant.personName && assistant.amount
+          ? [
+              {
+                personName: assistant.personName,
+                amount: assistant.amount,
+                debtType: assistant.debtType || "LENT",
+                debtDescription: assistant.debtDescription || "ยืมเงิน",
+              },
+            ]
+          : [];
+
+      if (itemsToCreate.length === 0) {
         await lineClient.replyMessage({
           replyToken,
           messages: [
@@ -276,75 +295,54 @@ async function handleTextMessage(
               type: "text",
               text:
                 assistant.replyText ||
-                "ต้องการจดหนี้เรื่องอะไรครับ? เช่น 'ปิ่น 50 ค่ากาแฟ', 'ก้องยืม 20' หรือ 'เรายืมแฮม 60'",
+                "ต้องการจดหนี้เรื่องอะไรครับ? เช่น 'ปิ่น 50 ค่ากาแฟ', 'ก้องยืม 20' หรือพิมพ์หลายคน เช่น:\nก้อง 20\nแป๋ม 50\nแฮม 60",
             },
           ],
         });
         return;
       }
 
-      let profile = await db.getPersonProfile(userId, assistant.personName);
-      if (!profile) {
-        profile = await db.upsertPersonProfile({
-          userId,
-          name: assistant.personName,
-        });
+      // Save each debt item to database
+      for (const it of itemsToCreate) {
+        try {
+          await db.upsertPersonProfile({
+            userId,
+            name: it.personName,
+          });
+          await db.createDebt({
+            userId,
+            personName: it.personName,
+            amount: it.amount,
+            type: it.debtType || "LENT",
+            description: it.debtDescription || undefined,
+          });
+        } catch (dbErr) {
+          console.error(`Failed to save debt for ${it.personName}:`, dbErr);
+        }
       }
 
-      let debt;
-      try {
-        debt = await db.createDebt({
-          userId,
-          personName: assistant.personName,
-          amount: assistant.amount,
-          type: assistant.debtType || "LENT",
-          description: assistant.debtDescription || undefined,
-        });
-      } catch (dbErr) {
-        console.error("Failed to save debt in DB:", dbErr);
-        debt = {
-          id: "temp-debt-" + Date.now(),
-          userId,
-          personName: assistant.personName,
-          amount: assistant.amount,
-          type: (assistant.debtType || "LENT") as any,
-          description: assistant.debtDescription || null,
-          status: "PENDING" as const,
-          settledAt: null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-      }
+      // Format response text according to requested template
+      const formattedLines = itemsToCreate.map((it) => {
+        const isLent = it.debtType === "LENT";
+        const actionText = isLent ? "ยืมเงิน" : "เรายืมเงิน";
+        const noteText =
+          it.debtDescription && it.debtDescription !== "ยืมเงิน"
+            ? ` (${it.debtDescription})`
+            : "";
+        return `${it.personName} ${actionText} ${it.amount.toLocaleString("th-TH")} บาท${noteText}`;
+      });
 
-      const isLent = debt.type === "LENT";
-      const actionText = isLent ? "ยืมเงินคุณ (รอรับคืน)" : "คุณยืมเงินเขา (ต้องจ่ายคืน)";
-      const noteText = debt.description && debt.description !== "ยืมเงิน" ? ` (${debt.description})` : "";
-      const textMsg = `💰 บันทึกหนี้เรียบร้อยครับ!\n👤 ${debt.personName}: ${actionText} ฿${debt.amount.toLocaleString("th-TH")}${noteText}`;
+      const responseText = `บันทึกหนี้เรียบร้อยครับ\n${formattedLines.join("\n")}`;
 
-      try {
-        const flexCard = createDebtSuccessCard({ debt, profile });
-        await lineClient.replyMessage({
-          replyToken,
-          messages: [
-            {
-              type: "text",
-              text: textMsg,
-            },
-            flexCard,
-          ],
-        });
-      } catch (flexErr) {
-        console.error("Debt flex message failed, fallback to text:", flexErr);
-        await lineClient.replyMessage({
-          replyToken,
-          messages: [
-            {
-              type: "text",
-              text: textMsg,
-            },
-          ],
-        });
-      }
+      await lineClient.replyMessage({
+        replyToken,
+        messages: [
+          {
+            type: "text",
+            text: responseText,
+          },
+        ],
+      });
       return;
     }
 
