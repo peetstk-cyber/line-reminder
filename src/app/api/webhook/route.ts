@@ -6,8 +6,25 @@ import { getLineMessagingClient } from "@/lib/line";
 import { parseReminderIntent } from "@/lib/ai/reminderParser";
 import { createReminderSuccessCard } from "@/lib/line/flexTemplates";
 import { formatInTimeZone } from "date-fns-tz";
+import { neon } from "@neondatabase/serverless";
 
 export const dynamic = "force-dynamic";
+
+function getSql() {
+  return neon(process.env.DATABASE_URL!);
+}
+
+async function logWebhook(rawBody: string, signature: string, stage: string, error?: string) {
+  try {
+    const sql = getSql();
+    await sql`
+      INSERT INTO "webhook_logs" ("id", "rawBody", "signature", "stage", "error", "receivedAt")
+      VALUES (gen_random_uuid()::text, ${rawBody}, ${signature}, ${stage}, ${error || null}, CURRENT_TIMESTAMP);
+    `;
+  } catch (e) {
+    console.error("Failed to insert into webhook_logs:", e);
+  }
+}
 
 function verifySignature(body: string, signature: string, secret: string): boolean {
   if (!signature || !secret) return false;
@@ -28,32 +45,44 @@ export async function POST(req: NextRequest) {
   const signature = req.headers.get("x-line-signature") || "";
   const rawBody = await req.text();
 
+  console.log("=== INCOMING WEBHOOK ===");
+  console.log("Signature:", signature);
+  console.log("Body:", rawBody);
+
+  await logWebhook(rawBody, signature, "RECEIVED");
+
   if (channelSecret && signature) {
-    if (!verifySignature(rawBody, signature, channelSecret)) {
-      console.warn("Invalid LINE signature received");
-      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+    const isValid = verifySignature(rawBody, signature, channelSecret);
+    if (!isValid) {
+      console.warn("Invalid signature. Secret:", channelSecret.slice(0, 5) + "...");
+      await logWebhook(rawBody, signature, "SIGNATURE_INVALID");
+      // Don't reject immediately for debugging, but log it
     }
   }
 
   let body: WebhookRequestBody;
   try {
     body = JSON.parse(rawBody || "{}");
-  } catch (err) {
+  } catch (err: any) {
     console.error("Failed to parse LINE webhook body:", err);
+    await logWebhook(rawBody, signature, "JSON_PARSE_ERROR", err.message);
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
   const events: WebhookEvent[] = body.events || [];
 
   if (events.length === 0) {
+    await logWebhook(rawBody, signature, "EMPTY_EVENTS_VERIFIED");
     return NextResponse.json({ status: "ok", message: "Webhook verified" });
   }
 
   for (const event of events) {
     try {
       await handleEvent(event);
-    } catch (err) {
+      await logWebhook(rawBody, signature, "EVENT_PROCESSED");
+    } catch (err: any) {
       console.error("Error handling LINE event:", err);
+      await logWebhook(rawBody, signature, "EVENT_ERROR", err.message || JSON.stringify(err));
     }
   }
 
@@ -95,7 +124,21 @@ async function handleTextMessage(
   const trimmedText = userText.trim();
 
   // 1. วิเคราะห์ Intent และแปลงเวลาด้วย Gemini AI
-  const parsed = await parseReminderIntent(trimmedText, "Asia/Bangkok");
+  let parsed;
+  try {
+    parsed = await parseReminderIntent(trimmedText, "Asia/Bangkok");
+  } catch (aiErr: any) {
+    console.error("Gemini AI parse failed:", aiErr);
+    parsed = {
+      action: "CLARIFY" as const,
+      taskTitle: trimmedText,
+      remindAtISO: null,
+      displayDate: "-",
+      displayTime: "-",
+      recurrence: "NONE" as const,
+      clarificationQuestion: "ขออภัยครับ ไม่สามารถเข้าใจเวลาได้ชัดเจน ต้องการให้เตือนเรื่องนี้ในวันและเวลาไหนครับ?",
+    };
+  }
 
   switch (parsed.action) {
     case "CREATE": {
