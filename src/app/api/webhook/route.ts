@@ -453,6 +453,10 @@ async function handleTextMessage(
             });
           }
         } else {
+          let title = assistant.taskTitle || trimmedText;
+          if (title.length > 30) {
+            title = title.substring(0, 30) + "...";
+          }
           await lineClient.replyMessage({
             replyToken,
             messages: [
@@ -460,7 +464,7 @@ async function handleTextMessage(
                 type: "text",
                 text:
                   assistant.replyText ||
-                  `ต้องการให้เตือนเรื่อง "${assistant.taskTitle || trimmedText}" ในวันและเวลาไหนดีครับ?`,
+                  `ต้องการให้เตือนเรื่อง "${title}" ในวันและเวลาไหนดีครับ?`,
               },
             ],
           });

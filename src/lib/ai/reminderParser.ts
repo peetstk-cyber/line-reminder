@@ -512,43 +512,6 @@ export async function parseAssistantIntent(
   const currentISO = formatInTimeZone(now, userTimezone, "yyyy-MM-dd'T'HH:mm:ssXXX");
 
   const systemInstruction = `
-คุณคือ AI Personal Assistant ผู้ช่วยอัจฉริยะสำหรับคนไทยใน LINE รองรับ 4 ระบบหลัก:
-1. ระบบเตือนความจำ (Reminders)
-2. ระบบจดโน้ต & รายการ (Notes & Lists)
-3. ระบบจดหนี้สินและการยืมเงิน (Debt & Lending Tracker)
-4. ระบบสรุปยามเช้า (Morning Briefing)
-
-[บริบทวันและเวลาปัจจุบัน (Timezone: ${userTimezone}, UTC+7)]
-- วันเวลาปัจจุบัน: ${currentFormatted}
-- Current ISO: ${currentISO}
-
-[กฎการแปลงเวลาภาษาไทย (Thai Colloquial Time Conversion)]:
-- "ทุ่ม" (กลางคืน): ทุ่มนึง/หนึ่งทุ่ม = 19:00, สองทุ่ม = 20:00, สามทุ่ม = 21:00, สี่ทุ่ม = 22:00, ห้าทุ่ม = 23:00
-- "บ่าย": บ่ายโมง = 13:00, บ่ายสอง = 14:00, บ่ายสาม = 15:00, บ่ายสี่ = 16:00
-- "เย็น": สี่โมงเย็น = 16:00, ห้าโมงเย็น = 17:00, หกโมงเย็น = 18:00
-- "เช้า": หกโมงเช้า = 06:00, เจ็ดโมงเช้า = 07:00, แปดโมงเช้า = 08:00, เก้าโมง/9โมง = 09:00, สิบโมง = 10:00, สิบเอ็ดโมง = 11:00
-- "เที่ยง" = 12:00, "เที่ยงคืน" = 00:00
-- "ตี": ตีหนึ่ง = 01:00, ตีสอง = 02:00, ตีสาม = 03:00, ตีสี่ = 04:00, ตีห้า = 05:00
-
-[กฎสำคัญในการสกัด Reminder]:
-- taskTitle ต้องเป็นชื่อกิจกรรมสั้นๆ เท่านั้น (เช่น "ขออิเล็กทีฟเจริญกรุง", "กินข้าว", "ประชุม") ห้ามใส่คำอธิบายการแปลงหรือคำว่าผิดปกติลงใน taskTitle เด็ดขาด!
-- แปลงเวลาเป็น remindAtISO ให้ตรงกับวันที่และเวลาที่ผู้ใช้ระบุ (UTC+7)
-
-[กฎการจำแนกประเภท (type)]:
-
-1. type: "DEBT" (การจดหนี้ ยืมเงิน คืนเงิน เคลียร์หนี้)
-   - "เราให้ยืม / เขาติดเรา" (debtType: "LENT"):
-     * ตัวอย่าง: "ปิ่น 50 ค่ากาแฟ", "ปิ่น 50", "ปิ่น 20", "ปิ่น 50 บาท" -> type: "DEBT", debtAction: "CREATE", debtType: "LENT", personName: "ปิ่น", amount: 50/20, debtDescription: "ค่ากาแฟ" หรือ "ยืมเงิน"
-     * ตัวอย่าง: "ก้องยืม 20" -> type: "DEBT", debtAction: "CREATE", debtType: "LENT", personName: "ก้อง", amount: 20, debtDescription: "ยืมเงิน"
-     * ตัวอย่าง: "ออกให้แฮม 120 ค่าข้าว" -> type: "DEBT", debtAction: "CREATE", debtType: "LENT", personName: "แฮม", amount: 120, debtDescription: "ค่าข้าว"
-   - "เรายืมเขา / เราติดเขา" (debtType: "BORROWED"):
-     * ตัวอย่าง: "เรายืมแฮม 60" / "กูยืมแฮม 20" / "ยืมแฮม 60" / "ติดตังค์แฮม 60" -> type: "DEBT", debtAction: "CREATE", debtType: "BORROWED", personName: "แฮม", amount: 60/20, debtDescription: "ยืมเงิน"
-     * ตัวอย่าง: "ติดเงินปิ่น 100 ค่าแท็กซี่" -> type: "DEBT", debtAction: "CREATE", debtType: "BORROWED", personName: "ปิ่น", amount: 100, debtDescription: "ค่าแท็กซี่"
-   - "การเคลียร์หนี้ / คืนเงินแล้ว" (debtAction: "SETTLE"):
-     * ตัวอย่าง: "ปิ่นคืนแล้ว", "เคลียร์หนี้ปิ่น", "ปิ่นจ่ายแล้ว" -> type: "DEBT", debtAction: "SETTLE", personName: "ปิ่น"
-     * ตัวอย่าง: "คืนเงินก้องแล้ว", "เคลียร์หนี้ก้อง" -> type: "DEBT", debtAction: "SETTLE", personName: "ก้อง"
-   - "ดูรายการหนี้ทั้งหมด" (debtAction: "LIST"):
-     * ตัวอย่าง: "ใครติดตังค์เราบ้าง", "หนี้ทั้งหมด", "ยอดหนี้", "ดูหนี้", "สรุปหนี้" -> type: "DEBT", debtAction: "LIST"
 
 2. type: "NOTE" (การจดโน้ต / บันทึกรายการ / รายการซื้อของ / ยา / สิ่งที่ต้องทำ)
    - เมื่อมีคำว่า: "จดโน้ต", "จดโน๊ต", "โน้ต", "โน๊ต", "บันทึก", "ซื้อของ", "รายการ", "list" หรือรายการของสั้นๆ เช่น "นาฬิกา กล้อง กระดาษ"
@@ -674,6 +637,33 @@ ${
   }
 
   if (rawJson) {
+    if (typeof rawJson.taskTitle === "string") {
+      let t = rawJson.taskTitle.trim();
+      if (
+        t.includes("ผิดปกติ") ||
+        t.includes("แปลงเป็น") ||
+        t.includes("taskTitle") ||
+        t.includes("remindAtISO") ||
+        t.includes("กฎบอกว่า") ||
+        t.includes("ขอแก้ไข") ||
+        t.includes("ตามกฎ")
+      ) {
+        t = normalizeThaiTypos(userMessage)
+          .replace(/^(?:เตือน|ช่วยเตือน|เตือนว่า|ช่วยเตือนว่า|ตั้งเตือน|แจ้งเตือน)\s*/, "")
+          .replace(/(?:พรุ่งนี้|วันนี้|มะรืนนี้|ตอนเช้า|ตอนเย็น|ตอนเที่ยง|ตอนบ่าย|\d+[:.]\d+|\d+\s*โมง|\d+\s*ทุ่ม|ตี\s*\d+)/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+      if (t.length > 35) {
+        t = t.substring(0, 35).trim();
+      }
+      rawJson.taskTitle = t || "เตือนความจำ";
+    }
+
+    if (typeof rawJson.replyText === "string" && rawJson.replyText.length > 80) {
+      rawJson.replyText = rawJson.replyText.substring(0, 80).trim();
+    }
+
     try {
       return AssistantResultSchema.parse(rawJson);
     } catch (zodErr) {
