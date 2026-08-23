@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    await db.ensureTablesExist();
     const sql = neon(process.env.DATABASE_URL!);
     const logs = await sql`SELECT * FROM "webhook_logs" ORDER BY "receivedAt" DESC LIMIT 20;`;
     const users = await sql`SELECT * FROM "users" LIMIT 10;`;
     const reminders = await sql`SELECT * FROM "reminders" ORDER BY "createdAt" DESC LIMIT 10;`;
+    const notes = await sql`SELECT * FROM "notes" ORDER BY "createdAt" DESC LIMIT 10;`;
 
     return NextResponse.json({
+      status: "ok",
       env: {
         hasDatabaseUrl: !!process.env.DATABASE_URL,
         hasLineToken: !!process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -21,8 +25,10 @@ export async function GET() {
       logs,
       users,
       reminders,
+      notes,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message });
   }
 }
+

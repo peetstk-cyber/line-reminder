@@ -2,43 +2,53 @@ import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { z } from "zod";
 import { formatInTimeZone } from "date-fns-tz";
 
-export const ReminderExtractionSchema = z.object({
-  action: z
-    .enum(["CREATE", "CANCEL", "EDIT", "LIST", "CLARIFY", "GENERAL_CHAT"])
-    .describe("Action ที่ผู้ใช้ต้องการทำ"),
-  taskTitle: z.string().describe("ชื่อกิจกรรมหรือสิ่งที่ต้องทำแบบสั้นกระชับ"),
+export const AssistantResultSchema = z.object({
+  type: z.enum(["REMINDER", "NOTE", "GENERAL_CHAT"]).describe("ประเภทของคำสั่ง"),
+  
+  // REMINDER DETAILS
+  reminderAction: z
+    .enum(["CREATE", "CANCEL", "EDIT", "LIST", "CLARIFY"])
+    .nullable()
+    .describe("Action สำหรับเตือนความจำ"),
+  taskTitle: z.string().nullable().describe("ชื่อกิจกรรมหรือสิ่งที่ต้องทำแบบสั้นกระชับ"),
   remindAtISO: z
     .string()
     .nullable()
-    .describe("ISO 8601 string ที่มี timezone +07:00 เช่น 2026-08-24T08:00:00+07:00 หากไม่มีเวลาให้เป็น null"),
-  displayDate: z
-    .string()
-    .describe("ข้อความแสดงวันที่สำหรับคนอ่าน เช่น 'พรุ่งนี้', 'วันนี้', '17 ก.ค.', '24 ส.ค.'"),
-  displayTime: z
-    .string()
-    .describe("ข้อความแสดงเวลาสำหรับคนอ่าน เช่น '08:00 น.', '20:00 น.', '15:00 น.'"),
-  recurrence: z
-    .enum(["NONE", "DAILY", "WEEKLY", "MONTHLY"])
-    .describe("รูปแบบการเตือนซ้ำ"),
-  clarificationQuestion: z
-    .string()
-    .nullable()
-    .describe("คำถามกลับกรณีข้อมูลไม่ครบหรือต้องการความชัดเจน เป็นภาษาไทยสุภาพและเป็นกันเอง"),
+    .describe("ISO 8601 string ที่มี timezone +07:00 เช่น 2026-08-24T08:00:00+07:00"),
+  displayDate: z.string().nullable().describe("ข้อความแสดงวันที่ เช่น 'พรุ่งนี้', 'วันนี้'"),
+  displayTime: z.string().nullable().describe("ข้อความแสดงเวลา เช่น '08:00 น.', '20:00 น.'"),
+  recurrence: z.enum(["NONE", "DAILY", "WEEKLY", "MONTHLY"]).nullable(),
+
+  // NOTE DETAILS
+  noteAction: z.enum(["CREATE", "LIST", "DELETE"]).nullable().describe("Action สำหรับโน้ต"),
+  noteTitle: z.string().nullable().describe("หัวข้อของโน้ต เช่น 'รายการซื้อของ', 'สิ่งที่ต้องทำ'"),
+  noteItems: z.array(z.string()).nullable().describe("รายการย่อย เช่น ['น้ำ', 'ขนมปัง', 'สาหร่าย']"),
+  noteCategory: z.enum(["SHOPPING", "TODO", "GENERAL"]).nullable(),
+
+  replyText: z.string().nullable().describe("ข้อความตอบกลับหรือคำถามเพิ่มเติมที่สุภาพและเป็นกันเอง"),
 });
 
-export type ReminderExtractionResult = z.infer<typeof ReminderExtractionSchema>;
+export type AssistantResult = z.infer<typeof AssistantResultSchema>;
+
+// Backward compatibility type for ReminderExtractionResult
+export interface ReminderExtractionResult {
+  action: "CREATE" | "CANCEL" | "EDIT" | "LIST" | "CLARIFY" | "GENERAL_CHAT";
+  taskTitle: string;
+  remindAtISO: string | null;
+  displayDate: string;
+  displayTime: string;
+  recurrence: "NONE" | "DAILY" | "WEEKLY" | "MONTHLY";
+  clarificationQuestion: string | null;
+}
 
 /**
- * แปลงข้อความภาษาธรรมชาติภาษาไทยของผู้ใช้เป็น Action และ JSON DateTime ที่แม่นยำ
- * @param userMessage ข้อความจากผู้ใช้
- * @param userTimezone Timezone ของผู้ใช้ (Default: "Asia/Bangkok")
- * @param userHistory ประวัติการสนทนาสั้นๆ สำหรับบริบทคำถามต่อเนื่อง (ถ้ามี)
+ * วิเคราะห์ข้อความผู้ใช้ว่าเป็น Reminder, Note หรือ Chat ทั่วไป
  */
-export async function parseReminderIntent(
+export async function parseAssistantIntent(
   userMessage: string,
   userTimezone = "Asia/Bangkok",
   userHistory?: { role: "user" | "model"; text: string }[]
-): Promise<ReminderExtractionResult> {
+): Promise<AssistantResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not configured in environment variables");
@@ -53,29 +63,48 @@ export async function parseReminderIntent(
       responseSchema: {
         type: SchemaType.OBJECT,
         properties: {
-          action: {
+          type: {
             type: SchemaType.STRING,
             format: "enum",
-            enum: ["CREATE", "CANCEL", "EDIT", "LIST", "CLARIFY", "GENERAL_CHAT"],
+            enum: ["REMINDER", "NOTE", "GENERAL_CHAT"],
           },
-          taskTitle: { type: SchemaType.STRING },
+          reminderAction: {
+            type: SchemaType.STRING,
+            format: "enum",
+            enum: ["CREATE", "CANCEL", "EDIT", "LIST", "CLARIFY"],
+            nullable: true,
+          },
+          taskTitle: { type: SchemaType.STRING, nullable: true },
           remindAtISO: { type: SchemaType.STRING, nullable: true },
-          displayDate: { type: SchemaType.STRING },
-          displayTime: { type: SchemaType.STRING },
+          displayDate: { type: SchemaType.STRING, nullable: true },
+          displayTime: { type: SchemaType.STRING, nullable: true },
           recurrence: {
             type: SchemaType.STRING,
             format: "enum",
             enum: ["NONE", "DAILY", "WEEKLY", "MONTHLY"],
+            nullable: true,
           },
-          clarificationQuestion: { type: SchemaType.STRING, nullable: true },
+          noteAction: {
+            type: SchemaType.STRING,
+            format: "enum",
+            enum: ["CREATE", "LIST", "DELETE"],
+            nullable: true,
+          },
+          noteTitle: { type: SchemaType.STRING, nullable: true },
+          noteItems: {
+            type: SchemaType.ARRAY,
+            items: { type: SchemaType.STRING },
+            nullable: true,
+          },
+          noteCategory: {
+            type: SchemaType.STRING,
+            format: "enum",
+            enum: ["SHOPPING", "TODO", "GENERAL"],
+            nullable: true,
+          },
+          replyText: { type: SchemaType.STRING, nullable: true },
         },
-        required: [
-          "action",
-          "taskTitle",
-          "displayDate",
-          "displayTime",
-          "recurrence",
-        ],
+        required: ["type"],
       },
     },
   });
@@ -89,55 +118,32 @@ export async function parseReminderIntent(
   const currentISO = formatInTimeZone(now, userTimezone, "yyyy-MM-dd'T'HH:mm:ssXXX");
 
   const systemInstruction = `
-คุณคือ AI Smart Reminder Assistant สำหรับผู้ใช้งานคนไทยใน LINE
-หน้าที่ของคุณคือวิเคราะห์ข้อความของผู้ใช้ แล้วแปลงเป็น JSON โครงสร้างตาม Schema ที่กำหนด
+คุณคือ AI Personal Assistant สำหรับผู้ใช้งานคนไทยใน LINE (รองรับทั้งระบบเตือนความจำ และระบบจดโน้ต/รายการซื้อของ)
+หน้าที่ของคุณคือวิเคราะห์ข้อความของผู้ใช้ แล้วแปลงเป็น JSON โครงสร้างตาม Schema
 
 [บริบทวันและเวลาปัจจุบัน (Timezone: ${userTimezone}, UTC+7)]
 - วันเวลาปัจจุบัน: ${currentFormatted}
 - Current ISO: ${currentISO}
 
-[กฎการแปลงวันและเวลาภาษาไทยที่สำคัญ]:
-1. การแปลงคำบอกเวลาไทยเป็น 24-hour Time:
-   - "8 โมง" / "8 โมงเช้า" / "แปดโมง" -> 08:00 น.
-   - "9 โมง" / "เก้าโมงเช้า" -> 09:00 น.
-   - "10 โมง" / "สายๆ" -> 10:00 น.
-   - "11 โมง" -> 11:00 น.
-   - "เที่ยง" / "ตอนเที่ยง" -> 12:00 น.
-   - "บ่ายโมง" / "บ่าย 1" -> 13:00 น.
-   - "บ่าย 2" / "บ่ายสอง" -> 14:00 น.
-   - "บ่าย 3" / "บ่ายสาม" -> 15:00 น.
-   - "บ่าย 4" / "สี่โมงเย็น" -> 16:00 น.
-   - "5 โมงเย็น" / "ห้าโมงเย็น" -> 17:00 น.
-   - "6 โมงเย็น" / "หกโมงเย็น" -> 18:00 น.
-   - "1 ทุ่ม" -> 19:00 น.
-   - "2 ทุ่ม" -> 20:00 น.
-   - "3 ทุ่ม" -> 21:00 น.
-   - "4 ทุ่ม" -> 22:00 น.
-   - "5 ทุ่ม" -> 23:00 น.
-   - "เที่ยงคืน" -> 00:00 น.
-   - "ตี 1" -> 01:00 น., "ตี 2" -> 02:00 น., "ตี 3" -> 03:00 น., "ตี 4" -> 04:00 น., "ตี 5" -> 05:00 น., "6 โมงเช้า" -> 06:00 น.
-   - "อีก 15 นาที" / "อีก X นาที" -> บวกเพิ่ม X นาที จากเวลาปัจจุบัน (${currentFormatted})
-   - "อีก 1 ชั่วโมง" / "อีก X ชั่วโมง" -> บวกเพิ่ม X ชั่วโมง จากเวลาปัจจุบัน
+[เกณฑ์การจำแนกประเภท (type)]:
+1. type: "NOTE" (การจดโน้ต / รายการซื้อของ / รายการสิ่งที่ต้องทำ)
+   - เมื่อผู้ใช้พูดว่า "จดโน้ต...", "โน้ต...", "ซื้อของ...", "รายการซื้อ...", "บันทึก...", "จดไว้...", "ลิสต์..."
+   - หรือผู้ใช้พิมพ์รายการสิ่งของหรืออาหารสั้นๆ หลายรายการ เช่น "น้ำ ขนมปัง สาหร่าย", "ไข่ไก่ นม มาม่า", "ของต้องซื้อ: แชมพู สบู่"
+   - noteAction: "CREATE" (สร้างโน้ตใหม่), "LIST" (ดูโน้ต เช่น "ดูโน้ต", "โน้ตมีอะไรบ้าง"), "DELETE" (ลบโน้ต)
+   - noteCategory: 
+     * "SHOPPING" ถ้าเป็นของกิน ของใช้ วัตถุดิบ สิ่งของที่ต้องซื้อ
+     * "TODO" ถ้าเป็นสิ่งที่ต้องทำหรือภารกิจ
+     * "GENERAL" อื่นๆ ทั่วไป
+   - noteTitle: ตั้งชื่อให้กระชับ เช่น "รายการซื้อของ", "รายการของใช้", "บันทึกทั่วไป"
+   - noteItems: แยกเป็น Array ของ string สำหรับแต่ละไอเทม เช่น ["น้ำ", "ขนมปัง", "สาหร่าย"]
 
-2. การแปลงคำบอกวันที่:
-   - "วันนี้" -> วันปัจจุบัน
-   - "พรุ่งนี้" -> วันถัดไป (+1 วัน)
-   - "มะรืนนี้" -> 2 วันถัดไป (+2 วัน)
-   - "จันทร์หน้า", "ศุกร์นี้" -> คำนวณวันให้สัมพันธ์กับวันปัจจุบันในสัปดาห์
+2. type: "REMINDER" (การตั้งเตือนความจำที่มีวัน/เวลา หรือเจตนาให้บอทแจ้งเตือน)
+   - เมื่อผู้ใช้ระบุเวลา เช่น "พรุ่งนี้ 9 โมง...", "เตือนตอน...", "อีก 15 นาที...", "2 ทุ่ม..."
+   - แปลงเวลาไทยเป็น 24h ISO 8601 และ displayDate/displayTime
+   - reminderAction: "CREATE", "CANCEL", "EDIT", "LIST", "CLARIFY"
 
-3. การระบุ Action:
-   - CREATE: เมื่อมีทั้งกิจกรรมและวันเวลาที่ครบถ้วน (remindAtISO ต้องเป็น ISO-8601 สมบูรณ์)
-   - CLARIFY: เมื่อผู้ใช้ต้องการตั้งเตือนแต่ขาดวันหรือเวลา (เช่น บอกแค่ "โทรหาแม่", "พรุ่งนี้ช่วยเตือนหน่อย") -> ตั้ง action: "CLARIFY", remindAtISO: null และสร้าง clarificationQuestion ถามข้อมูลที่ขาดไปอย่างสุภาพ
-   - CANCEL: ผู้ใช้ต้องการยกเลิกการแจ้งเตือน
-   - EDIT: ผู้ใช้ต้องการแก้ไขข้อมูลหรือเลื่อนเวลา
-   - LIST: ผู้ใช้ต้องการดูรายการเตือนทั้งหมด เช่น "มีเตือนอะไรบ้าง", "ดูรายการ", "เตือนอะไรไว้บ้าง"
-   - GENERAL_CHAT: ข้อความทักทายหรือสนทนาทั่วไป -> clarificationQuestion ให้ใส่คำตอบรับที่สุภาพ
-
-4. Recurrence:
-   - "ทุกวัน" -> DAILY
-   - "ทุกสัปดาห์" / "ทุกวันจันทร์" -> WEEKLY
-   - "ทุกเดือน" -> MONTHLY
-   - เตือนครั้งเดียว -> NONE
+3. type: "GENERAL_CHAT" (การสนทนาทักทายทั่วไป)
+   - replyText: ข้อความตอบรับที่เป็นมิตร
 `;
 
   const prompt = `${systemInstruction}
@@ -158,20 +164,70 @@ ${
 
   try {
     const rawJson = JSON.parse(text);
-    return ReminderExtractionSchema.parse(rawJson);
+    return AssistantResultSchema.parse(rawJson);
   } catch (err) {
-    console.error("Error parsing Gemini response:", err, "Raw response:", text);
+    console.error("Error parsing Gemini assistant response:", err, "Raw response:", text);
     return {
-      action: "CLARIFY",
-      taskTitle: userMessage,
+      type: "GENERAL_CHAT",
+      reminderAction: null,
+      taskTitle: null,
       remindAtISO: null,
-      displayDate: "-",
-      displayTime: "-",
-      recurrence: "NONE",
-      clarificationQuestion: "ขออภัยครับ ไม่สามารถเข้าใจเวลาได้ชัดเจน ต้องการให้เตือนเรื่องนี้ในวันและเวลาไหนครับ?",
+      displayDate: null,
+      displayTime: null,
+      recurrence: null,
+      noteAction: null,
+      noteTitle: null,
+      noteItems: null,
+      noteCategory: null,
+      replyText: "ขออภัยครับ ไม่สามารถเข้าใจคำสั่งได้ ต้องการให้ตั้งเตือนหรือจดโน้ตเรื่องอะไรครับ?",
     };
   }
 }
 
-// Alias for backward compatibility
+/**
+ * Backward-compatible parseReminderIntent function
+ */
+export async function parseReminderIntent(
+  userMessage: string,
+  userTimezone = "Asia/Bangkok",
+  userHistory?: { role: "user" | "model"; text: string }[]
+): Promise<ReminderExtractionResult> {
+  const result = await parseAssistantIntent(userMessage, userTimezone, userHistory);
+
+  if (result.type === "REMINDER") {
+    return {
+      action: result.reminderAction || "CREATE",
+      taskTitle: result.taskTitle || userMessage,
+      remindAtISO: result.remindAtISO,
+      displayDate: result.displayDate || "-",
+      displayTime: result.displayTime || "-",
+      recurrence: result.recurrence || "NONE",
+      clarificationQuestion: result.replyText,
+    };
+  }
+
+  if (result.type === "NOTE") {
+    // If called via old interface, return clarify/general
+    return {
+      action: "GENERAL_CHAT",
+      taskTitle: result.noteTitle || userMessage,
+      remindAtISO: null,
+      displayDate: "-",
+      displayTime: "-",
+      recurrence: "NONE",
+      clarificationQuestion: result.replyText,
+    };
+  }
+
+  return {
+    action: "GENERAL_CHAT",
+    taskTitle: userMessage,
+    remindAtISO: null,
+    displayDate: "-",
+    displayTime: "-",
+    recurrence: "NONE",
+    clarificationQuestion: result.replyText,
+  };
+}
+
 export const parseReminderWithAI = parseReminderIntent;

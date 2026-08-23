@@ -20,6 +20,12 @@ enum Recurrence {
   MONTHLY
 }
 
+enum NoteCategory {
+  SHOPPING
+  TODO
+  GENERAL
+}
+
 model User {
   id          String     @id @default(cuid())
   lineUserId  String     @unique
@@ -27,6 +33,7 @@ model User {
   pictureUrl  String?
   createdAt   DateTime   @default(now())
   reminders   Reminder[]
+  notes       Note[]
 
   @@map("users")
 }
@@ -50,6 +57,22 @@ model Reminder {
   @@map("reminders")
 }
 
+model Note {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  items     Json         @default("[]")
+  category  NoteCategory @default(GENERAL)
+  isPinned  Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([userId])
+  @@index([category])
+  @@map("notes")
+}
+
 model NotificationLog {
   id         String   @id @default(cuid())
   reminderId String
@@ -60,3 +83,4 @@ model NotificationLog {
   @@index([reminderId])
   @@map("notification_logs")
 }
+

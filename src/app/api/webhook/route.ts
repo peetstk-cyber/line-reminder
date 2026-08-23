@@ -3,8 +3,8 @@ import crypto from "crypto";
 import { WebhookRequestBody, WebhookEvent, PostbackEvent } from "@line/bot-sdk";
 import { db } from "@/lib/db";
 import { getLineMessagingClient } from "@/lib/line";
-import { parseReminderIntent } from "@/lib/ai/reminderParser";
-import { createReminderSuccessCard } from "@/lib/line/flexTemplates";
+import { parseAssistantIntent } from "@/lib/ai/reminderParser";
+import { createReminderSuccessCard, createNoteSuccessCard } from "@/lib/line/flexTemplates";
 import { formatInTimeZone } from "date-fns-tz";
 import { neon } from "@neondatabase/serverless";
 
@@ -123,182 +123,287 @@ async function handleTextMessage(
 ) {
   const trimmedText = userText.trim();
 
-  // 1. วิเคราะห์ Intent และแปลงเวลาด้วย Gemini AI
-  let parsed;
+  // 1. วิเคราะห์ Intent ด้วย Gemini AI Master Router
+  let assistant;
   try {
-    parsed = await parseReminderIntent(trimmedText, "Asia/Bangkok");
+    assistant = await parseAssistantIntent(trimmedText, "Asia/Bangkok");
   } catch (aiErr: any) {
     console.error("Gemini AI parse failed:", aiErr);
-    parsed = {
-      action: "CLARIFY" as const,
-      taskTitle: trimmedText,
+    assistant = {
+      type: "GENERAL_CHAT" as const,
+      reminderAction: null,
+      taskTitle: null,
       remindAtISO: null,
-      displayDate: "-",
-      displayTime: "-",
-      recurrence: "NONE" as const,
-      clarificationQuestion: "ขออภัยครับ ไม่สามารถเข้าใจเวลาได้ชัดเจน ต้องการให้เตือนเรื่องนี้ในวันและเวลาไหนครับ?",
+      displayDate: null,
+      displayTime: null,
+      recurrence: null,
+      noteAction: null,
+      noteTitle: null,
+      noteItems: null,
+      noteCategory: null,
+      replyText: "ขออภัยครับ ไม่สามารถประมวลผลได้ในขณะนี้ ต้องการให้ช่วยเตือนความจำหรือจดโน้ตเรื่องอะไรครับ?",
     };
   }
 
-  switch (parsed.action) {
-    case "CREATE": {
-      if (parsed.remindAtISO) {
-        const remindAt = new Date(parsed.remindAtISO);
+  // -------------------------------------------------------------
+  // CASE 1: จัดการ NOTE (จดโน้ต / รายการซื้อของ / สิ่งที่ต้องทำ)
+  // -------------------------------------------------------------
+  if (assistant.type === "NOTE") {
+    if (assistant.noteAction === "CREATE" || !assistant.noteAction) {
+      const itemsList = (assistant.noteItems && assistant.noteItems.length > 0)
+        ? assistant.noteItems
+        : [trimmedText];
 
-        let reminder;
-        try {
-          reminder = await db.createReminder({
-            userId,
-            taskTitle: parsed.taskTitle,
-            remindAt,
-            displayDate: parsed.displayDate,
-            displayTime: parsed.displayTime,
-            recurrence: parsed.recurrence,
-            status: "PENDING",
-          });
-        } catch (dbErr) {
-          console.error("Failed to save reminder in DB:", dbErr);
-          reminder = {
-            id: "temp-" + Date.now(),
-            userId,
-            taskTitle: parsed.taskTitle,
-            remindAt: remindAt.toISOString(),
-            displayDate: parsed.displayDate,
-            displayTime: parsed.displayTime,
-            recurrence: parsed.recurrence,
-            status: "PENDING" as const,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-        }
+      const noteItems = itemsList.map((txt) => ({
+        id: "item-" + Math.random().toString(36).substring(2, 9),
+        text: txt.trim(),
+        completed: false,
+      }));
 
-        try {
-          const flexMessage = createReminderSuccessCard(reminder);
-          await lineClient.replyMessage({
-            replyToken,
-            messages: [flexMessage],
-          });
-        } catch (flexErr) {
-          console.error("Flex message failed, falling back to text:", flexErr);
+      let note;
+      try {
+        note = await db.createNote({
+          userId,
+          title: assistant.noteTitle || (assistant.noteCategory === "SHOPPING" ? "รายการซื้อของ" : "โน้ตบันทึก"),
+          items: noteItems,
+          category: assistant.noteCategory || "GENERAL",
+        });
+      } catch (dbErr) {
+        console.error("Failed to save note in DB:", dbErr);
+        note = {
+          id: "temp-note-" + Date.now(),
+          userId,
+          title: assistant.noteTitle || "รายการบันทึก",
+          items: noteItems,
+          category: (assistant.noteCategory || "GENERAL") as any,
+          isPinned: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      try {
+        const flexMessage = createNoteSuccessCard(note);
+        await lineClient.replyMessage({
+          replyToken,
+          messages: [flexMessage],
+        });
+      } catch (flexErr) {
+        console.error("Note flex message failed, fallback to text:", flexErr);
+        const preview = noteItems.map((it) => `• ${it.text}`).join("\n");
+        await lineClient.replyMessage({
+          replyToken,
+          messages: [
+            {
+              type: "text",
+              text: `📝 บันทึก "${note.title}" เรียบร้อยแล้วครับ!\n\n${preview}`,
+            },
+          ],
+        });
+      }
+      return;
+    }
+
+    if (assistant.noteAction === "LIST") {
+      const userNotes = await db.findNotesByUserId(userId);
+      if (userNotes.length === 0) {
+        await lineClient.replyMessage({
+          replyToken,
+          messages: [
+            {
+              type: "text",
+              text: "คุณยังไม่มีโน้ตหรือรายการที่บันทึกไว้ครับ 🌿 สามารถพิมพ์สั่งจดได้เลย เช่น 'จดโน้ต ซื้อไข่ไก่ นม ปลากระป๋อง'",
+            },
+          ],
+        });
+      } else {
+        const summary = userNotes
+          .slice(0, 4)
+          .map((n, i) => {
+            const count = Array.isArray(n.items) ? n.items.length : 0;
+            const done = Array.isArray(n.items) ? n.items.filter((it) => it.completed).length : 0;
+            return `${i + 1}. 📝 ${n.title} (${done}/${count} เสร็จแล้ว)`;
+          })
+          .join("\n");
+
+        const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
+        const liffUrl = liffId ? `https://liff.line.me/${liffId}?tab=notes` : "";
+
+        await lineClient.replyMessage({
+          replyToken,
+          messages: [
+            {
+              type: "text",
+              text: `📋 โน้ตของคุณ:\n\n${summary}\n\n👉 ดูและติ๊กรายการทั้งหมดได้ที่: ${liffUrl}`,
+            },
+          ],
+        });
+      }
+      return;
+    }
+  }
+
+  // -------------------------------------------------------------
+  // CASE 2: จัดการ REMINDER (เตือนความจำ)
+  // -------------------------------------------------------------
+  if (assistant.type === "REMINDER") {
+    switch (assistant.reminderAction) {
+      case "CREATE": {
+        if (assistant.remindAtISO) {
+          const remindAt = new Date(assistant.remindAtISO);
+
+          let reminder;
+          try {
+            reminder = await db.createReminder({
+              userId,
+              taskTitle: assistant.taskTitle || trimmedText,
+              remindAt,
+              displayDate: assistant.displayDate || undefined,
+              displayTime: assistant.displayTime || undefined,
+              recurrence: assistant.recurrence || "NONE",
+              status: "PENDING",
+            });
+          } catch (dbErr) {
+            console.error("Failed to save reminder in DB:", dbErr);
+            reminder = {
+              id: "temp-" + Date.now(),
+              userId,
+              taskTitle: assistant.taskTitle || trimmedText,
+              remindAt: remindAt.toISOString(),
+              displayDate: assistant.displayDate || "-",
+              displayTime: assistant.displayTime || "-",
+              recurrence: (assistant.recurrence || "NONE") as any,
+              status: "PENDING" as const,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            };
+          }
+
+          try {
+            const flexMessage = createReminderSuccessCard(reminder);
+            await lineClient.replyMessage({
+              replyToken,
+              messages: [flexMessage],
+            });
+          } catch (flexErr) {
+            console.error("Flex message failed, falling back to text:", flexErr);
+            await lineClient.replyMessage({
+              replyToken,
+              messages: [
+                {
+                  type: "text",
+                  text: `⏰ ตั้งเตือน "${reminder.taskTitle}" วันที่ ${reminder.displayDate || ""} เวลา ${reminder.displayTime || ""} เรียบร้อยแล้วครับ! 🌿`,
+                },
+              ],
+            });
+          }
+        } else {
           await lineClient.replyMessage({
             replyToken,
             messages: [
               {
                 type: "text",
-                text: `⏰ ตั้งเตือน "${reminder.taskTitle}" วันที่ ${reminder.displayDate || ""} เวลา ${reminder.displayTime || ""} เรียบร้อยแล้วครับ! 🌿`,
+                text:
+                  assistant.replyText ||
+                  `ต้องการให้เตือนเรื่อง "${assistant.taskTitle || trimmedText}" ในวันและเวลาไหนดีครับ?`,
               },
             ],
           });
         }
-      } else {
+        return;
+      }
+
+      case "CLARIFY": {
         await lineClient.replyMessage({
           replyToken,
           messages: [
             {
               type: "text",
               text:
-                parsed.clarificationQuestion ||
-                `ต้องการให้เตือนเรื่อง "${parsed.taskTitle}" ในวันและเวลาไหนดีครับ?`,
+                assistant.replyText ||
+                "ต้องการให้เตือนเรื่องอะไร ในวันและเวลาไหนครับ? แจ้งผมได้เลย เช่น 'พรุ่งนี้ 8 โมงเช้า โทรหาลูกค้า'",
             },
           ],
         });
+        return;
       }
-      break;
-    }
 
-    case "CLARIFY": {
-      await lineClient.replyMessage({
-        replyToken,
-        messages: [
-          {
-            type: "text",
-            text:
-              parsed.clarificationQuestion ||
-              "ต้องการให้เตือนเรื่องอะไร ในวันและเวลาไหนครับ? แจ้งผมได้เลย เช่น 'พรุ่งนี้ 8 โมงเช้า โทรหาลูกค้า'",
-          },
-        ],
-      });
-      break;
-    }
-
-    case "CANCEL": {
-      const latestPending = await db.findLatestPendingReminder(userId);
-
-      if (latestPending) {
-        await db.updateReminder(latestPending.id, { status: "CANCELLED" });
-
-        await lineClient.replyMessage({
-          replyToken,
-          messages: [
-            {
-              type: "text",
-              text: `ยกเลิกการเตือน "${latestPending.taskTitle}" เรียบร้อยแล้วครับ ❌`,
-            },
-          ],
-        });
-      } else {
-        await lineClient.replyMessage({
-          replyToken,
-          messages: [
-            {
-              type: "text",
-              text: "ไม่พบรายการแจ้งเตือนที่กำลังรอดำเนินการครับ",
-            },
-          ],
-        });
+      case "CANCEL": {
+        const latestPending = await db.findLatestPendingReminder(userId);
+        if (latestPending) {
+          await db.updateReminder(latestPending.id, { status: "CANCELLED" });
+          await lineClient.replyMessage({
+            replyToken,
+            messages: [
+              {
+                type: "text",
+                text: `ยกเลิกการเตือน "${latestPending.taskTitle}" เรียบร้อยแล้วครับ ❌`,
+              },
+            ],
+          });
+        } else {
+          await lineClient.replyMessage({
+            replyToken,
+            messages: [
+              {
+                type: "text",
+                text: "ไม่พบรายการแจ้งเตือนที่กำลังรอดำเนินการครับ",
+              },
+            ],
+          });
+        }
+        return;
       }
-      break;
-    }
 
-    case "LIST": {
-      const pendingReminders = await db.findRemindersByUserId(userId, "all");
+      case "LIST": {
+        const pendingReminders = await db.findRemindersByUserId(userId, "all");
+        if (pendingReminders.length === 0) {
+          await lineClient.replyMessage({
+            replyToken,
+            messages: [
+              {
+                type: "text",
+                text: "ตอนนี้คุณไม่มีรายการแจ้งเตือนที่ค้างอยู่ครับ 🌿",
+              },
+            ],
+          });
+        } else {
+          const listText = pendingReminders
+            .slice(0, 5)
+            .map((r, i) => `${i + 1}. 📌 ${r.taskTitle}\n   ⏰ ${r.displayDate || ""} ${r.displayTime || ""}`)
+            .join("\n\n");
 
-      if (pendingReminders.length === 0) {
-        await lineClient.replyMessage({
-          replyToken,
-          messages: [
-            {
-              type: "text",
-              text: "ตอนนี้คุณไม่มีรายการแจ้งเตือนที่ค้างอยู่ครับ 🌿",
-            },
-          ],
-        });
-      } else {
-        const listText = pendingReminders
-          .slice(0, 5)
-          .map((r, i) => `${i + 1}. 📌 ${r.taskTitle}\n   ⏰ ${r.displayDate || ""} ${r.displayTime || ""}`)
-          .join("\n\n");
-
-        await lineClient.replyMessage({
-          replyToken,
-          messages: [
-            {
-              type: "text",
-              text: `📋 รายการแจ้งเตือนของคุณ:\n\n${listText}`,
-            },
-          ],
-        });
+          await lineClient.replyMessage({
+            replyToken,
+            messages: [
+              {
+                type: "text",
+                text: `📋 รายการแจ้งเตือนของคุณ:\n\n${listText}`,
+              },
+            ],
+          });
+        }
+        return;
       }
-      break;
-    }
-
-    case "GENERAL_CHAT":
-    default: {
-      await lineClient.replyMessage({
-        replyToken,
-        messages: [
-          {
-            type: "text",
-            text:
-              parsed.clarificationQuestion ||
-              "สวัสดีครับ! ผมคือ AI Smart Reminder บอทช่วยจำ สามารถพิมพ์บอกสิ่งที่ต้องการให้เตือนพร้อมวันเวลาได้เลยครับ เช่น 'พรุ่งนี้ 2 ทุ่ม อ่านหนังสือ'",
-          },
-        ],
-      });
-      break;
     }
   }
+
+  // -------------------------------------------------------------
+  // CASE 3: GENERAL_CHAT หรือ สนทนาทั่วไป
+  // -------------------------------------------------------------
+  await lineClient.replyMessage({
+    replyToken,
+    messages: [
+      {
+        type: "text",
+        text:
+          assistant.replyText ||
+          "สวัสดีครับ! ผมคือ AI Personal Assistant ผู้ช่วยส่วนตัวของคุณ 🌿\n\nสามารถบอกผมได้เลย เช่น:\n⏰ 'พรุ่งนี้ 9 โมง นัดประชุม'\n📝 'จดโน้ต ซื้อไข่ไก่ นม ขนมปัง'",
+      },
+    ],
+  });
 }
+
 
 async function handlePostback(lineClient: ReturnType<typeof getLineMessagingClient>, event: PostbackEvent) {
   const replyToken = event.replyToken;

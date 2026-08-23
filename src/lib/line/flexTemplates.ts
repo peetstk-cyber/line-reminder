@@ -1,5 +1,178 @@
 import { messagingApi } from "@line/bot-sdk";
-import { DbReminder } from "../db";
+import { DbReminder, DbNote } from "../db";
+
+/**
+ * สร้าง Flex Message สำหรับโน้ตที่บันทึกสำเร็จ (Note Card)
+ */
+export function createNoteSuccessCard(
+  note: DbNote | { id: string; title: string; items: { id: string; text: string; completed: boolean }[]; category: string }
+): messagingApi.FlexMessage {
+  const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
+  const liffUrl = liffId ? `https://liff.line.me/${liffId}?tab=notes` : `https://line.me`;
+
+  const categoryLabel: Record<string, { name: string; emoji: string; bg: string }> = {
+    SHOPPING: { name: "รายการซื้อของ", emoji: "🛒", bg: "#EBF5EB" },
+    TODO: { name: "สิ่งที่ต้องทำ", emoji: "📌", bg: "#FEF3C7" },
+    GENERAL: { name: "โน้ตทั่วไป", emoji: "📝", bg: "#E0E7FF" },
+  };
+
+  const cat = categoryLabel[note.category] || categoryLabel.GENERAL;
+  const items = Array.isArray(note.items) ? note.items : [];
+
+  const itemsListContents: messagingApi.FlexComponent[] = items.length > 0
+    ? items.slice(0, 8).map((item) => ({
+        type: "box",
+        layout: "horizontal",
+        spacing: "sm",
+        margin: "sm",
+        contents: [
+          {
+            type: "text",
+            text: item.completed ? "☑" : "☐",
+            color: item.completed ? "#3B5B3E" : "#766E65",
+            size: "sm",
+            flex: 1,
+          },
+          {
+            type: "text",
+            text: item.text,
+            color: item.completed ? "#A39E98" : "#2C221E",
+            decoration: item.completed ? "line-through" : "none",
+            size: "sm",
+            wrap: true,
+            flex: 9,
+          },
+        ],
+      }))
+    : [
+        {
+          type: "text",
+          text: "(ไม่มีรายการย่อย)",
+          color: "#766E65",
+          size: "sm",
+          style: "italic",
+        },
+      ];
+
+  if (items.length > 8) {
+    itemsListContents.push({
+      type: "text",
+      text: `...และอีก ${items.length - 8} รายการ`,
+      color: "#766E65",
+      size: "xs",
+      margin: "md",
+    });
+  }
+
+  const bubble: messagingApi.FlexBubble = {
+    type: "bubble",
+    size: "mega",
+    header: {
+      type: "box",
+      layout: "horizontal",
+      backgroundColor: "#D8E8D4",
+      paddingAll: "16px",
+      alignItems: "center",
+      contents: [
+        {
+          type: "box",
+          layout: "horizontal",
+          backgroundColor: "#3B5B3E",
+          width: "20px",
+          height: "20px",
+          cornerRadius: "10px",
+          alignItems: "center",
+          justifyContent: "center",
+          contents: [
+            {
+              type: "text",
+              text: "📝",
+              size: "xxs",
+              align: "center",
+            },
+          ],
+        },
+        {
+          type: "text",
+          text: "จดโน้ตสำเร็จ",
+          weight: "bold",
+          color: "#2C221E",
+          size: "md",
+          margin: "md",
+          flex: 1,
+        },
+        {
+          type: "text",
+          text: `${cat.emoji} ${cat.name}`,
+          color: "#3B5B3E",
+          size: "xs",
+          weight: "bold",
+          align: "end",
+        },
+      ],
+    },
+    body: {
+      type: "box",
+      layout: "vertical",
+      backgroundColor: "#F8F9F5",
+      paddingAll: "20px",
+      contents: [
+        {
+          type: "text",
+          text: note.title || "โน้ต",
+          weight: "bold",
+          size: "lg",
+          color: "#2C221E",
+          wrap: true,
+        },
+        {
+          type: "separator",
+          margin: "md",
+          color: "#EFEBE4",
+        },
+        {
+          type: "box",
+          layout: "vertical",
+          margin: "md",
+          contents: itemsListContents,
+        },
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "horizontal",
+      backgroundColor: "#F8F9F5",
+      paddingAll: "16px",
+      contents: [
+        {
+          type: "button",
+          style: "primary",
+          height: "sm",
+          color: "#3B5B3E",
+          action: {
+            type: "uri",
+            label: "📝 เปิดดู & ติ๊กรายการใน LIFF",
+            uri: liffUrl,
+          },
+          flex: 1,
+        },
+      ],
+    },
+    styles: {
+      footer: {
+        separator: true,
+        separatorColor: "#EFEBE4",
+      },
+    },
+  };
+
+  return {
+    type: "flex",
+    altText: `📝 บันทึก "${note.title}" เรียบร้อยแล้ว`,
+    contents: bubble,
+  };
+}
+
 
 /**
  * สร้าง Flex Message การ์ดยืนยันการตั้งเตือนสำเร็จ (Theme สีเขียว Muted Matcha)

@@ -30,7 +30,51 @@ export interface DbReminder {
   user?: DbUser;
 }
 
+export interface DbNoteItem {
+  id: string;
+  text: string;
+  completed: boolean;
+}
+
+export interface DbNote {
+  id: string;
+  userId: string;
+  title: string;
+  items: DbNoteItem[];
+  category: "SHOPPING" | "TODO" | "GENERAL";
+  isPinned: boolean;
+  createdAt: string;
+  updatedAt: string;
+  user?: DbUser;
+}
+
 export const db = {
+  async ensureTablesExist(): Promise<void> {
+    try {
+      const sql = getSql();
+      await sql`
+        CREATE TABLE IF NOT EXISTS "notes" (
+          "id" TEXT PRIMARY KEY,
+          "userId" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+          "title" TEXT NOT NULL,
+          "items" JSONB NOT NULL DEFAULT '[]'::jsonb,
+          "category" TEXT NOT NULL DEFAULT 'GENERAL',
+          "isPinned" BOOLEAN NOT NULL DEFAULT false,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS "notes_userId_idx" ON "notes"("userId");
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS "notes_category_idx" ON "notes"("category");
+      `;
+    } catch (err) {
+      console.error("Error ensuring notes table exists:", err);
+    }
+  },
+
   async upsertUser(lineUserId: string, displayName?: string, pictureUrl?: string): Promise<DbUser> {
     const sql = getSql();
     const rows = await sql`
@@ -171,4 +215,116 @@ export const db = {
       VALUES (gen_random_uuid()::text, ${reminderId}, ${status}, CURRENT_TIMESTAMP);
     `;
   },
+
+  // ===================== NOTE CRUD METHODS =====================
+  async createNote(data: {
+    userId: string;
+    title: string;
+    items?: DbNoteItem[];
+    category?: "SHOPPING" | "TODO" | "GENERAL";
+    isPinned?: boolean;
+  }): Promise<DbNote> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    const itemsJson = JSON.stringify(data.items || []);
+    const rows = await sql`
+      INSERT INTO "notes" (
+        "id", "userId", "title", "items", "category", "isPinned"
+      )
+      VALUES (
+        gen_random_uuid()::text,
+        ${data.userId},
+        ${data.title},
+        ${itemsJson}::jsonb,
+        ${data.category || "GENERAL"},
+        ${data.isPinned || false}
+      )
+      RETURNING *;
+    `;
+    return rows[0] as DbNote;
+  },
+
+  async findNotesByUserId(userId: string, category?: string): Promise<DbNote[]> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    if (category && category !== "ALL") {
+      const rows = await sql`
+        SELECT * FROM "notes"
+        WHERE "userId" = ${userId} AND "category" = ${category}
+        ORDER BY "isPinned" DESC, "updatedAt" DESC;
+      `;
+      return rows as DbNote[];
+    }
+    const rows = await sql`
+      SELECT * FROM "notes"
+      WHERE "userId" = ${userId}
+      ORDER BY "isPinned" DESC, "updatedAt" DESC;
+    `;
+    return rows as DbNote[];
+  },
+
+  async findNoteById(id: string): Promise<DbNote | null> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    const rows = await sql`SELECT * FROM "notes" WHERE "id" = ${id} LIMIT 1;`;
+    return (rows[0] as DbNote) || null;
+  },
+
+  async updateNote(id: string, data: {
+    title?: string;
+    items?: DbNoteItem[];
+    category?: "SHOPPING" | "TODO" | "GENERAL";
+    isPinned?: boolean;
+  }): Promise<DbNote | null> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    const existing = await sql`SELECT * FROM "notes" WHERE "id" = ${id} LIMIT 1;`;
+    if (!existing || existing.length === 0) return null;
+
+    const title = data.title !== undefined ? data.title : existing[0].title;
+    const items = data.items !== undefined ? JSON.stringify(data.items) : JSON.stringify(existing[0].items);
+    const category = data.category !== undefined ? data.category : existing[0].category;
+    const isPinned = data.isPinned !== undefined ? data.isPinned : existing[0].isPinned;
+
+    const rows = await sql`
+      UPDATE "notes" SET
+        "title" = ${title},
+        "items" = ${items}::jsonb,
+        "category" = ${category},
+        "isPinned" = ${isPinned},
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${id}
+      RETURNING *;
+    `;
+    return (rows[0] as DbNote) || null;
+  },
+
+  async toggleNoteItem(noteId: string, itemId: string): Promise<DbNote | null> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    const existing = await sql`SELECT * FROM "notes" WHERE "id" = ${noteId} LIMIT 1;`;
+    if (!existing || existing.length === 0) return null;
+
+    const items: DbNoteItem[] = Array.isArray(existing[0].items) ? existing[0].items : [];
+    const updatedItems = items.map((it) =>
+      it.id === itemId ? { ...it, completed: !it.completed } : it
+    );
+
+    const rows = await sql`
+      UPDATE "notes" SET
+        "items" = ${JSON.stringify(updatedItems)}::jsonb,
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ${noteId}
+      RETURNING *;
+    `;
+    return (rows[0] as DbNote) || null;
+  },
+
+  async deleteNote(id: string): Promise<boolean> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    await sql`DELETE FROM "notes" WHERE "id" = ${id};`;
+    return true;
+  },
 };
+
