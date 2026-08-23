@@ -97,7 +97,6 @@ export function createDebtSuccessCard(data: {
           type: "box",
           layout: "horizontal",
           justifyContent: "space-between",
-          alignItems: "baseline",
           contents: [
             {
               type: "text",
