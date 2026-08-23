@@ -324,12 +324,15 @@ async function handleTextMessage(
       // Format response text according to requested template
       const formattedLines = itemsToCreate.map((it) => {
         const isLent = it.debtType === "LENT";
-        const actionText = isLent ? "ยืมเงิน" : "เรายืมเงิน";
         const noteText =
           it.debtDescription && it.debtDescription !== "ยืมเงิน"
             ? ` (${it.debtDescription})`
             : "";
-        return `${it.personName} ${actionText} ${it.amount.toLocaleString("th-TH")} บาท${noteText}`;
+        if (isLent) {
+          return `${it.personName} ยืมเงิน ${it.amount.toLocaleString("th-TH")} บาท${noteText}`;
+        } else {
+          return `เรายืมเงิน ${it.personName} ${it.amount.toLocaleString("th-TH")} บาท${noteText}`;
+        }
       });
 
       const responseText = `บันทึกหนี้เรียบร้อยครับ\n${formattedLines.join("\n")}`;
