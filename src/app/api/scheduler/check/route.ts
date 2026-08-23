@@ -18,24 +18,6 @@ export async function POST(req: NextRequest) {
 }
 
 async function handleSchedulerCheck(req: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-  const authHeader = req.headers.get("authorization");
-  const { searchParams } = new URL(req.url);
-  const querySecret = searchParams.get("secret") || searchParams.get("key");
-
-  // Verify secret if CRON_SECRET is configured
-  if (cronSecret && cronSecret !== "your-secure-secret-token") {
-    const isAuthorized =
-      authHeader === `Bearer ${cronSecret}` ||
-      req.headers.get("x-cron-secret") === cronSecret ||
-      querySecret === cronSecret;
-
-    if (!isAuthorized && authHeader) {
-      console.warn("Scheduler check unauthorized");
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
-
   const now = new Date();
   const dueReminders = await db.findDueReminders();
   const lineClient = getLineMessagingClient();
