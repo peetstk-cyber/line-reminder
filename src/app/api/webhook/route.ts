@@ -113,7 +113,7 @@ async function handleEvent(event: WebhookEvent) {
 
   // 2. Handle Message Event
   if (event.type === "message" && event.message.type === "text") {
-    await handleTextMessage(lineClient, event.replyToken, event.message.text, user.id);
+    await handleTextMessage(lineClient, event.replyToken, event.message.text, user.id, user);
   }
 
   // 3. Handle Postback Event
@@ -126,7 +126,8 @@ async function handleTextMessage(
   lineClient: ReturnType<typeof getLineMessagingClient>,
   replyToken: string,
   userText: string,
-  userId: string
+  userId: string,
+  user?: any
 ) {
   const trimmedText = userText.trim();
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, DbUser } from "@/lib/db";
 import { getLineMessagingClient } from "@/lib/line";
 import { createMorningBriefCard, getThaiDateString } from "@/lib/line/flexTemplates";
 
@@ -21,7 +21,7 @@ async function handleMorningBrief(req: NextRequest) {
   const now = new Date();
   const dateStr = getThaiDateString(now);
 
-  let users = [];
+  let users: DbUser[] = [];
   if (targetLineUserId) {
     const singleUser = await db.findUserByLineId(targetLineUserId);
     if (singleUser) users = [singleUser];

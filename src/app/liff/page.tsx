@@ -1329,7 +1329,7 @@ export default function LiffDashboard() {
                     <CalendarDays className="w-6 h-6 text-matcha-dark/60" />
                   </div>
                   <p className="text-sm font-semibold text-mocha">ไม่มีการแจ้งเตือนในวันนี้ 🎉</p>
-                  <p className="text-xs text-mocha-muted">กดปุ่ม "เพิ่มงานวันนี้" เพื่อกำหนดเวลาแจ้งเตือน</p>
+                  <p className="text-xs text-mocha-muted">กดปุ่ม &quot;เพิ่มงานวันนี้&quot; เพื่อกำหนดเวลาแจ้งเตือน</p>
                 </div>
               ) : (
                 <div className="space-y-2 pt-1">

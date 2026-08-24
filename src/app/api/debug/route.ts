@@ -4,8 +4,16 @@ import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const { searchParams } = new URL(req.url);
+    const secret = searchParams.get("secret");
+    const allowedSecret = process.env.CRON_SECRET || process.env.DEBUG_SECRET;
+
+    if (process.env.NODE_ENV === "production" && (!allowedSecret || secret !== allowedSecret)) {
+      return NextResponse.json({ error: "Unauthorized access" }, { status: 403 });
+    }
+
     await db.ensureTablesExist();
     const sql = neon(process.env.DATABASE_URL!);
     const logs = await sql`SELECT * FROM "webhook_logs" ORDER BY "receivedAt" DESC LIMIT 20;`;

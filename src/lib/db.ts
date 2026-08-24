@@ -253,7 +253,10 @@ export const db = {
     return rows as DbReminder[];
   },
 
-  async updateReminder(id: string, data: Partial<DbReminder> & { remindAt?: Date }): Promise<DbReminder | null> {
+  async updateReminder(
+    id: string,
+    data: Partial<Omit<DbReminder, "remindAt">> & { remindAt?: Date | string }
+  ): Promise<DbReminder | null> {
     const sql = getSql();
     const existing = await sql`SELECT * FROM "reminders" WHERE "id" = ${id} LIMIT 1;`;
     if (!existing || existing.length === 0) return null;
@@ -263,7 +266,9 @@ export const db = {
     const recurrence = data.recurrence !== undefined ? data.recurrence : existing[0].recurrence;
     const displayDate = data.displayDate !== undefined ? data.displayDate : existing[0].displayDate;
     const displayTime = data.displayTime !== undefined ? data.displayTime : existing[0].displayTime;
-    const remindAt = data.remindAt ? data.remindAt.toISOString() : existing[0].remindAt;
+    const remindAt = data.remindAt
+      ? (typeof data.remindAt === "string" ? data.remindAt : data.remindAt.toISOString())
+      : existing[0].remindAt;
 
     const rows = await sql`
       UPDATE "reminders" SET
