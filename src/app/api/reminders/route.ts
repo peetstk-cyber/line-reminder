@@ -34,27 +34,41 @@ export async function GET(req: NextRequest) {
     const endOfDayMs = new Date(`${bkkDateStr}T23:59:59.999+07:00`).getTime();
     const endOfWeekMs = now.getTime() + 7 * 24 * 60 * 60 * 1000;
 
-    let reminders = allReminders;
+    // Active pending reminders sorted chronologically (nearest upcoming first)
+    const pendingReminders = allReminders
+      .filter((r) => r.status === "PENDING")
+      .sort((a, b) => new Date(a.remindAt).getTime() - new Date(b.remindAt).getTime());
+
+    // Completed reminders sorted by most recently finished first
+    const completedReminders = allReminders
+      .filter((r) => r.status === "COMPLETED")
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt || b.createdAt).getTime() -
+          new Date(a.updatedAt || a.createdAt).getTime()
+      );
+
+    let reminders = pendingReminders;
     if (filter === "today") {
-      reminders = allReminders.filter((r) => {
+      reminders = pendingReminders.filter((r) => {
         const time = new Date(r.remindAt).getTime();
-        return r.status === "PENDING" && time >= startOfDayMs && time <= endOfDayMs;
+        return time >= startOfDayMs && time <= endOfDayMs;
       });
     } else if (filter === "week") {
-      reminders = allReminders.filter((r) => {
+      reminders = pendingReminders.filter((r) => {
         const time = new Date(r.remindAt).getTime();
-        return r.status === "PENDING" && time >= startOfDayMs && time <= endOfWeekMs;
+        return time >= startOfDayMs && time <= endOfWeekMs;
       });
     } else if (filter === "completed") {
-      reminders = allReminders.filter((r) => r.status === "COMPLETED");
+      reminders = completedReminders;
     }
 
-    const todayCount = allReminders.filter((r) => {
+    const todayCount = pendingReminders.filter((r) => {
       const time = new Date(r.remindAt).getTime();
-      return r.status === "PENDING" && time >= startOfDayMs && time <= endOfDayMs;
+      return time >= startOfDayMs && time <= endOfDayMs;
     }).length;
-    const totalPending = allReminders.filter((r) => r.status === "PENDING").length;
-    const completedCount = allReminders.filter((r) => r.status === "COMPLETED").length;
+    const totalPending = pendingReminders.length;
+    const completedCount = completedReminders.length;
 
     return NextResponse.json({
       reminders,

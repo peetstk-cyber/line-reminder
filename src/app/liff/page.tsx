@@ -380,9 +380,27 @@ export default function LiffDashboard() {
   // Toggle Reminder Completed / Pending
   async function handleToggleReminder(id: string, currentStatus: string) {
     const newStatus = currentStatus === "PENDING" ? "COMPLETED" : "PENDING";
-    setReminders((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, status: newStatus as any } : r))
-    );
+
+    // Immediate optimistic removal from current view
+    if (newStatus === "COMPLETED" && activeReminderFilter !== "completed") {
+      setReminders((prev) => prev.filter((r) => r.id !== id));
+      setStats((prev) => ({
+        ...prev,
+        totalPending: Math.max(0, prev.totalPending - 1),
+        completedCount: prev.completedCount + 1,
+      }));
+    } else if (newStatus === "PENDING" && activeReminderFilter === "completed") {
+      setReminders((prev) => prev.filter((r) => r.id !== id));
+      setStats((prev) => ({
+        ...prev,
+        totalPending: prev.totalPending + 1,
+        completedCount: Math.max(0, prev.completedCount - 1),
+      }));
+    } else {
+      setReminders((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, status: newStatus as any } : r))
+      );
+    }
 
     try {
       await fetch(`/api/reminders/${id}`, {
@@ -919,7 +937,7 @@ export default function LiffDashboard() {
             <section className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
               {(
                 [
-                  { key: "all", label: "ทั้งหมด", count: stats.totalPending + stats.completedCount },
+                  { key: "all", label: "ทั้งหมด", count: stats.totalPending },
                   { key: "today", label: "วันนี้", count: stats.todayCount },
                   { key: "week", label: "สัปดาห์นี้", count: undefined },
                   { key: "completed", label: "เสร็จแล้ว", count: stats.completedCount },
@@ -1004,7 +1022,7 @@ export default function LiffDashboard() {
                       <div className="p-4">
                         <div className="flex items-start gap-3">
                           <button
-                            onClick={() => handleToggleReminderStatus(item)}
+                            onClick={() => handleToggleReminder(item.id, item.status)}
                             className="mt-0.5 text-mocha-muted hover:text-matcha-dark transition-colors"
                             title={isDone ? "ทำเครื่องหมายว่ายังไม่เสร็จ" : "ทำเครื่องหมายว่าเสร็จแล้ว"}
                           >
