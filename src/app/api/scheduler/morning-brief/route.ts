@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getLineMessagingClient } from "@/lib/line";
-import { createMorningBriefCard } from "@/lib/line/flexTemplates";
-import { formatInTimeZone } from "date-fns-tz";
+import { createMorningBriefCard, getThaiDateString } from "@/lib/line/flexTemplates";
 
 export const dynamic = "force-dynamic";
-
-const TIMEZONE = "Asia/Bangkok";
 
 export async function GET(req: NextRequest) {
   return handleMorningBrief(req);
@@ -22,7 +19,7 @@ async function handleMorningBrief(req: NextRequest) {
 
   const lineClient = getLineMessagingClient();
   const now = new Date();
-  const dateStr = formatInTimeZone(now, TIMEZONE, "EEEEที่ dd MMMM yyyy");
+  const dateStr = getThaiDateString(now);
 
   let users = [];
   if (targetLineUserId) {

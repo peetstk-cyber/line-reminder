@@ -167,6 +167,35 @@ export default function LiffDashboard() {
   const [customPhotoUrl, setCustomPhotoUrl] = useState<string>("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
+  // Instant Cache Hydration on mount (0ms UI render)
+  useEffect(() => {
+    try {
+      const cachedUid = localStorage.getItem("line_uid");
+      const cachedName = localStorage.getItem("line_name");
+      const cachedPic = localStorage.getItem("line_pic");
+      const cachedRem = localStorage.getItem("line_cached_reminders");
+      const cachedStats = localStorage.getItem("line_cached_stats");
+      const cachedNotes = localStorage.getItem("line_cached_notes");
+      const cachedDebts = localStorage.getItem("line_cached_debts");
+
+      if (cachedUid) setLineUserId(cachedUid);
+      if (cachedName) setDisplayName(cachedName);
+      if (cachedPic) setPictureUrl(cachedPic);
+      if (cachedRem) {
+        const parsed = JSON.parse(cachedRem);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setReminders(parsed);
+          setLoading(false);
+        }
+      }
+      if (cachedStats) setStats(JSON.parse(cachedStats));
+      if (cachedNotes) setNotes(JSON.parse(cachedNotes));
+      if (cachedDebts) setDebtSummary(JSON.parse(cachedDebts));
+    } catch (e) {
+      console.error("Failed to load local cache:", e);
+    }
+  }, []);
+
   // Initialize LIFF & Check URL Params
   useEffect(() => {
     async function initLiff() {
@@ -175,6 +204,8 @@ export default function LiffDashboard() {
         const tab = urlParams.get("tab");
         if (tab === "notes") {
           setActiveMainTab("notes");
+        } else if (tab === "debt") {
+          setActiveMainTab("debt");
         }
       }
 
@@ -188,7 +219,15 @@ export default function LiffDashboard() {
             setDisplayName(profile.displayName);
             setPictureUrl(profile.pictureUrl || null);
 
-            await fetch("/api/users/sync", {
+            // Save to localStorage for instant 0ms load next time
+            try {
+              localStorage.setItem("line_uid", profile.userId);
+              localStorage.setItem("line_name", profile.displayName);
+              if (profile.pictureUrl) localStorage.setItem("line_pic", profile.pictureUrl);
+            } catch (e) {}
+
+            // Background sync (non-blocking)
+            fetch("/api/users/sync", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -196,7 +235,7 @@ export default function LiffDashboard() {
                 displayName: profile.displayName,
                 pictureUrl: profile.pictureUrl,
               }),
-            });
+            }).catch((err) => console.error("Background user sync failed:", err));
           } else {
             const fallbackUid = "demo_user_001";
             setLineUserId(fallbackUid);
@@ -223,12 +262,20 @@ export default function LiffDashboard() {
   const fetchReminders = useCallback(async (filter = activeReminderFilter) => {
     if (!lineUserId) return;
     try {
-      setLoading(true);
       const res = await fetch(`/api/reminders?lineUserId=${lineUserId}&filter=${filter}`);
       if (res.ok) {
         const data = await res.json();
         setReminders(data.reminders || []);
         if (data.stats) setStats(data.stats);
+
+        try {
+          if (filter === "all" && Array.isArray(data.reminders)) {
+            localStorage.setItem("line_cached_reminders", JSON.stringify(data.reminders));
+          }
+          if (data.stats) {
+            localStorage.setItem("line_cached_stats", JSON.stringify(data.stats));
+          }
+        } catch (e) {}
       }
     } catch (err) {
       console.error("Error fetching reminders:", err);
@@ -241,11 +288,15 @@ export default function LiffDashboard() {
   const fetchNotes = useCallback(async (category = activeNoteCategory) => {
     if (!lineUserId) return;
     try {
-      setLoading(true);
       const res = await fetch(`/api/notes?lineUserId=${lineUserId}&category=${category}`);
       if (res.ok) {
         const data = await res.json();
         setNotes(data.notes || []);
+        try {
+          if (category === "ALL" && Array.isArray(data.notes)) {
+            localStorage.setItem("line_cached_notes", JSON.stringify(data.notes));
+          }
+        } catch (e) {}
       }
     } catch (err) {
       console.error("Error fetching notes:", err);
@@ -258,11 +309,15 @@ export default function LiffDashboard() {
   const fetchDebts = useCallback(async () => {
     if (!lineUserId) return;
     try {
-      setLoading(true);
       const res = await fetch(`/api/debts?lineUserId=${lineUserId}`);
       if (res.ok) {
         const data = await res.json();
-        if (data.summary) setDebtSummary(data.summary);
+        if (data.summary) {
+          setDebtSummary(data.summary);
+          try {
+            localStorage.setItem("line_cached_debts", JSON.stringify(data.summary));
+          } catch (e) {}
+        }
         if (data.debts) setDebts(data.debts);
         if (data.profiles) setPersonProfiles(data.profiles);
       }

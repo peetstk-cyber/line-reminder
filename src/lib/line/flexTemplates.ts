@@ -428,18 +428,37 @@ export function createDebtSummaryCard(data: {
 }
 
 /**
+ * แปลงวันที่เป็นภาษาไทย เช่น "วันจันทร์ที่ 24 ส.ค. 2569"
+ */
+export function getThaiDateString(date: Date = new Date()): string {
+  const thaiDays = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
+  const thaiMonths = [
+    "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+    "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."
+  ];
+
+  const bkkDate = new Date(date.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+  const dayName = thaiDays[bkkDate.getDay()];
+  const dayNum = bkkDate.getDate();
+  const monthName = thaiMonths[bkkDate.getMonth()];
+  const year = bkkDate.getFullYear() + 543;
+
+  return `${dayName}ที่ ${dayNum} ${monthName} ${year}`;
+}
+
+/**
  * สร้าง Flex Message สรุปยามเช้า (Daily Morning Briefing - 06:00 น.)
  */
 export function createMorningBriefCard(data: {
   displayName?: string;
-  dateStr: string;
+  dateStr?: string;
   todayReminders: DbReminder[];
   pendingNotes: { id: string; title: string; category: string; pendingItems: string[] }[];
 }): messagingApi.FlexMessage {
   const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
   const liffUrl = liffId ? `https://liff.line.me/${liffId}` : `https://line.me`;
 
-  const { displayName = "คุณ", dateStr, todayReminders, pendingNotes } = data;
+  const { displayName = "คุณ", dateStr = getThaiDateString(), todayReminders, pendingNotes } = data;
 
   // 1. Reminders Box
   const reminderContents: messagingApi.FlexComponent[] = [

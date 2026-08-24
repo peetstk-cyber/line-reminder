@@ -10,6 +10,7 @@ import {
   createMorningBriefCard,
   createDebtSuccessCard,
   createDebtSummaryCard,
+  getThaiDateString,
 } from "@/lib/line/flexTemplates";
 import { formatInTimeZone } from "date-fns-tz";
 import { neon } from "@neondatabase/serverless";
@@ -552,7 +553,7 @@ async function handleTextMessage(
   // -------------------------------------------------------------
   if (assistant.type === "BRIEFING") {
     const briefData = await db.findMorningBriefData(userId);
-    const dateStr = formatInTimeZone(new Date(), "Asia/Bangkok", "EEEEที่ dd MMMM yyyy");
+    const dateStr = getThaiDateString(new Date());
     const card = createMorningBriefCard({
       displayName: user.displayName || "คุณ",
       dateStr,

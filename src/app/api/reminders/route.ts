@@ -26,10 +26,33 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const reminders = await db.findRemindersByUserId(user.id, filter);
     const allReminders = await db.findRemindersByUserId(user.id, "all");
 
-    const todayCount = allReminders.filter((r) => r.status === "PENDING" && r.displayDate === formatInTimeZone(new Date(), TIMEZONE, "dd MMM yyyy")).length;
+    const now = new Date();
+    const bkkDateStr = formatInTimeZone(now, TIMEZONE, "yyyy-MM-dd");
+    const startOfDayMs = new Date(`${bkkDateStr}T00:00:00+07:00`).getTime();
+    const endOfDayMs = new Date(`${bkkDateStr}T23:59:59.999+07:00`).getTime();
+    const endOfWeekMs = now.getTime() + 7 * 24 * 60 * 60 * 1000;
+
+    let reminders = allReminders;
+    if (filter === "today") {
+      reminders = allReminders.filter((r) => {
+        const time = new Date(r.remindAt).getTime();
+        return r.status === "PENDING" && time >= startOfDayMs && time <= endOfDayMs;
+      });
+    } else if (filter === "week") {
+      reminders = allReminders.filter((r) => {
+        const time = new Date(r.remindAt).getTime();
+        return r.status === "PENDING" && time >= startOfDayMs && time <= endOfWeekMs;
+      });
+    } else if (filter === "completed") {
+      reminders = allReminders.filter((r) => r.status === "COMPLETED");
+    }
+
+    const todayCount = allReminders.filter((r) => {
+      const time = new Date(r.remindAt).getTime();
+      return r.status === "PENDING" && time >= startOfDayMs && time <= endOfDayMs;
+    }).length;
     const totalPending = allReminders.filter((r) => r.status === "PENDING").length;
     const completedCount = allReminders.filter((r) => r.status === "COMPLETED").length;
 

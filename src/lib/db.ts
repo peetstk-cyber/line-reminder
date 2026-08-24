@@ -1,4 +1,7 @@
 import { neon } from "@neondatabase/serverless";
+import { formatInTimeZone } from "date-fns-tz";
+
+const TIMEZONE = "Asia/Bangkok";
 
 function getSql() {
   const url = process.env.DATABASE_URL;
@@ -210,10 +213,33 @@ export const db = {
     }
 
     if (filter === "today") {
+      const bkkDateStr = formatInTimeZone(new Date(), TIMEZONE, "yyyy-MM-dd");
+      const startOfDay = new Date(`${bkkDateStr}T00:00:00+07:00`).toISOString();
+      const endOfDay = new Date(`${bkkDateStr}T23:59:59.999+07:00`).toISOString();
+
       const rows = await sql`
         SELECT * FROM "reminders"
-        WHERE "userId" = ${userId} AND "status" = 'PENDING'
-        AND "remindAt"::date = CURRENT_DATE
+        WHERE "userId" = ${userId}
+          AND "status" = 'PENDING'
+          AND "remindAt" >= ${startOfDay}
+          AND "remindAt" <= ${endOfDay}
+        ORDER BY "remindAt" ASC;
+      `;
+      return rows as DbReminder[];
+    }
+
+    if (filter === "week") {
+      const now = new Date();
+      const bkkDateStr = formatInTimeZone(now, TIMEZONE, "yyyy-MM-dd");
+      const startOfDay = new Date(`${bkkDateStr}T00:00:00+07:00`).toISOString();
+      const endOfWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      const rows = await sql`
+        SELECT * FROM "reminders"
+        WHERE "userId" = ${userId}
+          AND "status" = 'PENDING'
+          AND "remindAt" >= ${startOfDay}
+          AND "remindAt" <= ${endOfWeek}
         ORDER BY "remindAt" ASC;
       `;
       return rows as DbReminder[];
@@ -404,12 +430,18 @@ export const db = {
     await this.ensureTablesExist();
     const sql = getSql();
 
-    // Today's pending reminders (Thailand timezone UTC+7)
+    // Today's start and end in Bangkok time (UTC+7)
+    const bkkDateStr = formatInTimeZone(new Date(), TIMEZONE, "yyyy-MM-dd");
+    const startOfDay = new Date(`${bkkDateStr}T00:00:00+07:00`).toISOString();
+    const endOfDay = new Date(`${bkkDateStr}T23:59:59.999+07:00`).toISOString();
+
+    // Today's non-cancelled reminders
     const reminderRows = await sql`
       SELECT * FROM "reminders"
       WHERE "userId" = ${userId}
-        AND "status" = 'PENDING'
-        AND ("remindAt" AT TIME ZONE 'Asia/Bangkok')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok')::date
+        AND "status" != 'CANCELLED'
+        AND "remindAt" >= ${startOfDay}
+        AND "remindAt" <= ${endOfDay}
       ORDER BY "remindAt" ASC;
     `;
 
