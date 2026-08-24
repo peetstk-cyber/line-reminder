@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import liff from "@line/liff";
 import {
   Bell,
@@ -28,6 +28,9 @@ import {
   Smile,
   Image as ImageIcon,
   User,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
 } from "lucide-react";
 import { PRESET_AVATARS, getAvatarInfo, PresetAvatar } from "@/lib/avatar";
 import { formatInTimeZone } from "date-fns-tz";
@@ -106,12 +109,18 @@ interface Stats {
 }
 
 export default function LiffDashboard() {
-  const [activeMainTab, setActiveMainTab] = useState<"reminders" | "notes" | "debt">("reminders");
+  const [activeMainTab, setActiveMainTab] = useState<"reminders" | "calendar" | "notes" | "debt">("reminders");
   const [lineUserId, setLineUserId] = useState<string>("");
   const [displayName, setDisplayName] = useState<string>("ผู้ใช้งาน LINE");
   const [pictureUrl, setPictureUrl] = useState<string | null>(null);
   const [isLiffReady, setIsLiffReady] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Calendar State
+  const [calendarCurrentDate, setCalendarCurrentDate] = useState<Date>(() => new Date());
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(() => {
+    return formatInTimeZone(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
+  });
 
   // Reminders State
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
@@ -206,6 +215,8 @@ export default function LiffDashboard() {
           setActiveMainTab("notes");
         } else if (tab === "debt") {
           setActiveMainTab("debt");
+        } else if (tab === "calendar") {
+          setActiveMainTab("calendar");
         }
       }
 
@@ -332,6 +343,8 @@ export default function LiffDashboard() {
     if (isLiffReady && lineUserId) {
       if (activeMainTab === "reminders") {
         fetchReminders(activeReminderFilter);
+      } else if (activeMainTab === "calendar") {
+        fetchReminders("all");
       } else if (activeMainTab === "notes") {
         fetchNotes(activeNoteCategory);
       } else if (activeMainTab === "debt") {
@@ -712,8 +725,136 @@ export default function LiffDashboard() {
     return true;
   });
 
+  // Calendar Computations & Helpers
+  const year = calendarCurrentDate.getFullYear();
+  const month = calendarCurrentDate.getMonth();
+
+  const monthNamesThai = [
+    "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+    "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+  ];
+
+  const thaiDayHeaders = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
+
+  const handlePrevMonth = () => {
+    setCalendarCurrentDate(new Date(year, month - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCalendarCurrentDate(new Date(year, month + 1, 1));
+  };
+
+  const handleTodayMonth = () => {
+    const today = new Date();
+    setCalendarCurrentDate(today);
+    setSelectedCalendarDate(formatInTimeZone(today, "Asia/Bangkok", "yyyy-MM-dd"));
+  };
+
+  const remindersByDate = useMemo(() => {
+    const map = new Map<string, ReminderItem[]>();
+    reminders.forEach((r) => {
+      try {
+        const dateKey = formatInTimeZone(new Date(r.remindAt), "Asia/Bangkok", "yyyy-MM-dd");
+        const list = map.get(dateKey) || [];
+        list.push(r);
+        map.set(dateKey, list);
+      } catch (e) {}
+    });
+    return map;
+  }, [reminders]);
+
+  const calendarDays = useMemo(() => {
+    const firstDayOfMonth = new Date(year, month, 1);
+    const startDayOfWeek = firstDayOfMonth.getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+    const todayBangkokKey = formatInTimeZone(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
+
+    const cells: Array<{
+      day: number;
+      dateKey: string;
+      isCurrentMonth: boolean;
+      isToday: boolean;
+      isSelected: boolean;
+      reminders: ReminderItem[];
+      pendingCount: number;
+      completedCount: number;
+    }> = [];
+
+    for (let i = startDayOfWeek - 1; i >= 0; i--) {
+      const prevDay = daysInPrevMonth - i;
+      const prevDate = new Date(year, month - 1, prevDay);
+      const dateKey = formatInTimeZone(prevDate, "Asia/Bangkok", "yyyy-MM-dd");
+      const dayReminders = remindersByDate.get(dateKey) || [];
+      cells.push({
+        day: prevDay,
+        dateKey,
+        isCurrentMonth: false,
+        isToday: dateKey === todayBangkokKey,
+        isSelected: dateKey === selectedCalendarDate,
+        reminders: dayReminders,
+        pendingCount: dayReminders.filter((r) => r.status === "PENDING").length,
+        completedCount: dayReminders.filter((r) => r.status === "COMPLETED").length,
+      });
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const thisDate = new Date(year, month, day);
+      const dateKey = formatInTimeZone(thisDate, "Asia/Bangkok", "yyyy-MM-dd");
+      const dayReminders = remindersByDate.get(dateKey) || [];
+      cells.push({
+        day,
+        dateKey,
+        isCurrentMonth: true,
+        isToday: dateKey === todayBangkokKey,
+        isSelected: dateKey === selectedCalendarDate,
+        reminders: dayReminders,
+        pendingCount: dayReminders.filter((r) => r.status === "PENDING").length,
+        completedCount: dayReminders.filter((r) => r.status === "COMPLETED").length,
+      });
+    }
+
+    const remaining = (7 - (cells.length % 7)) % 7;
+    for (let nextDay = 1; nextDay <= remaining; nextDay++) {
+      const nextDate = new Date(year, month + 1, nextDay);
+      const dateKey = formatInTimeZone(nextDate, "Asia/Bangkok", "yyyy-MM-dd");
+      const dayReminders = remindersByDate.get(dateKey) || [];
+      cells.push({
+        day: nextDay,
+        dateKey,
+        isCurrentMonth: false,
+        isToday: dateKey === todayBangkokKey,
+        isSelected: dateKey === selectedCalendarDate,
+        reminders: dayReminders,
+        pendingCount: dayReminders.filter((r) => r.status === "PENDING").length,
+        completedCount: dayReminders.filter((r) => r.status === "COMPLETED").length,
+      });
+    }
+
+    return cells;
+  }, [year, month, remindersByDate, selectedCalendarDate]);
+
+  const selectedDayReminders = useMemo(() => {
+    return remindersByDate.get(selectedCalendarDate) || [];
+  }, [remindersByDate, selectedCalendarDate]);
+
+  const formatThaiSelectedDate = (dateKey: string) => {
+    try {
+      const parts = dateKey.split("-");
+      if (parts.length !== 3) return dateKey;
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const d = parseInt(parts[2], 10);
+      const date = new Date(y, m, d);
+      const dayOfWeek = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"][date.getDay()];
+      return `${dayOfWeek}ที่ ${d} ${monthNamesThai[m]} ${y + 543}`;
+    } catch (e) {
+      return dateKey;
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-sand-light text-mocha font-sans pb-20">
+    <div className="min-h-screen bg-sand-light text-mocha font-sans pb-28">
       {/* Top Header Bar */}
       <header className="sticky top-0 z-20 bg-sand-light/95 backdrop-blur-md border-b border-sand px-4 py-3 shadow-sm">
         <div className="max-w-xl mx-auto flex items-center justify-between">
@@ -744,37 +885,52 @@ export default function LiffDashboard() {
           </div>
         </div>
 
-        {/* 3-Tab Selector */}
-        <div className="max-w-xl mx-auto mt-3 grid grid-cols-3 gap-1 bg-sand/60 p-1 rounded-xl border border-sand">
+        {/* 4-Tab Selector */}
+        <div className="max-w-xl mx-auto mt-3 grid grid-cols-4 gap-1 bg-sand/60 p-1 rounded-xl border border-sand">
           <button
             onClick={() => setActiveMainTab("reminders")}
-            className={`py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+            className={`py-2 px-1 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 ${
               activeMainTab === "reminders"
                 ? "bg-white text-matcha-dark shadow-sm"
                 : "text-mocha-muted hover:text-mocha"
             }`}
           >
-            <Bell className="w-3.5 h-3.5" />
-            <span>เตือนความจำ</span>
+            <Bell className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">เตือน</span>
             {stats.todayCount > 0 && (
-              <span className="bg-matcha-dark text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+              <span className="bg-matcha-dark text-white text-[9px] px-1 py-0.1 rounded-full font-bold">
                 {stats.todayCount}
               </span>
             )}
           </button>
 
           <button
+            onClick={() => {
+              setActiveMainTab("calendar");
+              fetchReminders("all");
+            }}
+            className={`py-2 px-1 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 ${
+              activeMainTab === "calendar"
+                ? "bg-white text-matcha-dark shadow-sm"
+                : "text-mocha-muted hover:text-mocha"
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">ปฏิทิน</span>
+          </button>
+
+          <button
             onClick={() => setActiveMainTab("notes")}
-            className={`py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+            className={`py-2 px-1 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 ${
               activeMainTab === "notes"
                 ? "bg-white text-matcha-dark shadow-sm"
                 : "text-mocha-muted hover:text-mocha"
             }`}
           >
-            <CheckSquare className="w-3.5 h-3.5" />
-            <span>โน้ต</span>
+            <CheckSquare className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">โน้ต</span>
             {notes.length > 0 && (
-              <span className="bg-sand text-mocha-muted text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+              <span className="bg-sand text-mocha-muted text-[9px] px-1 py-0.1 rounded-full font-bold">
                 {notes.length}
               </span>
             )}
@@ -782,16 +938,16 @@ export default function LiffDashboard() {
 
           <button
             onClick={() => setActiveMainTab("debt")}
-            className={`py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+            className={`py-2 px-1 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 ${
               activeMainTab === "debt"
                 ? "bg-white text-matcha-dark shadow-sm"
                 : "text-mocha-muted hover:text-mocha"
             }`}
           >
-            <Coins className="w-3.5 h-3.5" />
-            <span>หนี้สิน</span>
+            <Coins className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">หนี้สิน</span>
             {debtSummary.people.length > 0 && (
-              <span className="bg-amber-100 text-amber-900 text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+              <span className="bg-amber-100 text-amber-900 text-[9px] px-1 py-0.1 rounded-full font-bold">
                 {debtSummary.people.length}
               </span>
             )}
@@ -1059,7 +1215,7 @@ export default function LiffDashboard() {
 
                         <div className="mt-3.5 pt-3 border-t border-sand flex items-center justify-end gap-2">
                           <button
-                            onClick={() => openEditModal(item)}
+                            onClick={() => handleEditClick(item)}
                             className="px-2.5 py-1 text-xs text-mocha-muted hover:text-mocha hover:bg-sand-light rounded-lg transition-colors flex items-center gap-1 font-medium"
                           >
                             <Pencil className="w-3.5 h-3.5" />
@@ -1083,7 +1239,245 @@ export default function LiffDashboard() {
         )}
 
         {/* ========================================================================= */}
-        {/* SECTION 2: NOTES & SHOPPING LIST TAB */}
+        {/* SECTION 2: CALENDAR & SCHEDULE TAB */}
+        {/* ========================================================================= */}
+        {activeMainTab === "calendar" && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            {/* Month Navigator Header */}
+            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-sand shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <span className="text-[11px] font-bold text-matcha-dark uppercase tracking-wider">ปฏิทินเตือนความจำ</span>
+                  <h2 className="text-lg sm:text-xl font-black text-mocha flex items-center gap-2 mt-0.5">
+                    <Calendar className="w-5 h-5 text-matcha-dark" />
+                    <span>{monthNamesThai[month]} {year + 543}</span>
+                  </h2>
+                </div>
+
+                <div className="flex items-center gap-1 bg-sand-light p-1 rounded-2xl border border-sand">
+                  <button
+                    onClick={handlePrevMonth}
+                    className="w-8 h-8 rounded-xl bg-white hover:bg-sand text-mocha flex items-center justify-center shadow-xs transition-colors"
+                    title="เดือนก่อนหน้า"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleTodayMonth}
+                    className="px-2.5 py-1 text-xs font-bold text-matcha-dark hover:bg-white rounded-xl transition-colors"
+                    title="ไปที่วันนี้"
+                  >
+                    วันนี้
+                  </button>
+                  <button
+                    onClick={handleNextMonth}
+                    className="w-8 h-8 rounded-xl bg-white hover:bg-sand text-mocha flex items-center justify-center shadow-xs transition-colors"
+                    title="เดือนถัดไป"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Days of Week Header */}
+              <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                {thaiDayHeaders.map((dayName, idx) => (
+                  <div
+                    key={dayName}
+                    className={`text-[11px] font-bold py-1 ${
+                      idx === 0 ? "text-rose-500" : idx === 6 ? "text-amber-600" : "text-mocha-muted"
+                    }`}
+                  >
+                    {dayName}
+                  </div>
+                ))}
+              </div>
+
+              {/* Calendar Grid Cells */}
+              <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
+                {calendarDays.map((cell, idx) => {
+                  const isSun = idx % 7 === 0;
+                  const isSat = idx % 7 === 6;
+
+                  return (
+                    <button
+                      key={`${cell.dateKey}-${idx}`}
+                      onClick={() => setSelectedCalendarDate(cell.dateKey)}
+                      className={`min-h-[50px] sm:min-h-[56px] p-1 rounded-2xl flex flex-col items-center justify-between transition-all relative ${
+                        cell.isSelected
+                          ? "bg-matcha-dark text-white font-bold shadow-md ring-2 ring-matcha-light scale-[1.02] z-10"
+                          : cell.isToday
+                          ? "bg-matcha-subtle/80 text-matcha-dark font-extrabold border border-matcha-light"
+                          : cell.isCurrentMonth
+                          ? "bg-sand-light/50 hover:bg-sand text-mocha font-medium"
+                          : "bg-transparent text-mocha-muted/30 hover:bg-sand-light/30"
+                      }`}
+                    >
+                      <span
+                        className={`text-xs ${
+                          cell.isSelected
+                            ? "text-white font-bold"
+                            : cell.isToday
+                            ? "text-matcha-dark font-black"
+                            : !cell.isCurrentMonth
+                            ? "text-mocha-muted/35"
+                            : isSun
+                            ? "text-rose-500 font-semibold"
+                            : isSat
+                            ? "text-amber-700 font-semibold"
+                            : "text-mocha"
+                        }`}
+                      >
+                        {cell.day}
+                      </span>
+
+                      {/* Event Dots */}
+                      <div className="flex items-center justify-center gap-1 min-h-[6px] mb-0.5">
+                        {cell.pendingCount > 0 && (
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              cell.isSelected ? "bg-white" : "bg-matcha-dark"
+                            }`}
+                          />
+                        )}
+                        {cell.completedCount > 0 && (
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              cell.isSelected ? "bg-white/60" : "bg-mocha-muted/40"
+                            }`}
+                          />
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Legend */}
+              <div className="mt-4 pt-3 border-t border-sand flex items-center justify-between text-[11px] text-mocha-muted px-1">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-matcha-dark" />
+                    <span>มีงานที่ต้องทำ</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-mocha-muted/40" />
+                    <span>เสร็จแล้ว</span>
+                  </div>
+                </div>
+                <span className="text-[10px] text-mocha-muted/70">แตะวันที่เพื่อดูงาน</span>
+              </div>
+            </div>
+
+            {/* Selected Day Inspector / Details */}
+            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-sand shadow-sm space-y-3">
+              <div className="flex items-center justify-between pb-3 border-b border-sand">
+                <div>
+                  <span className="text-[11px] font-semibold text-matcha-dark">รายการของวันที่</span>
+                  <h3 className="text-sm sm:text-base font-bold text-mocha">
+                    {formatThaiSelectedDate(selectedCalendarDate)}
+                  </h3>
+                </div>
+                <button
+                  onClick={() => {
+                    setIsCreatingReminder(true);
+                    setNewReminderDateTime(`${selectedCalendarDate}T09:00`);
+                    setActiveMainTab("reminders");
+                  }}
+                  className="px-3 py-1.5 bg-matcha-subtle hover:bg-matcha-light text-matcha-dark font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>เพิ่มงานวันนี้</span>
+                </button>
+              </div>
+
+              {/* Reminders List for Selected Date */}
+              {selectedDayReminders.length === 0 ? (
+                <div className="py-8 text-center space-y-2">
+                  <div className="w-12 h-12 rounded-2xl bg-sand-light mx-auto flex items-center justify-center text-mocha-muted">
+                    <CalendarDays className="w-6 h-6 text-matcha-dark/60" />
+                  </div>
+                  <p className="text-sm font-semibold text-mocha">ไม่มีการแจ้งเตือนในวันนี้ 🎉</p>
+                  <p className="text-xs text-mocha-muted">กดปุ่ม "เพิ่มงานวันนี้" เพื่อกำหนดเวลาแจ้งเตือน</p>
+                </div>
+              ) : (
+                <div className="space-y-2 pt-1">
+                  {selectedDayReminders.map((reminder) => {
+                    const isCompleted = reminder.status === "COMPLETED";
+                    return (
+                      <div
+                        key={reminder.id}
+                        className={`p-3 rounded-2xl border transition-all flex items-start justify-between gap-3 ${
+                          isCompleted
+                            ? "bg-sand-light/50 border-sand opacity-70"
+                            : "bg-white border-sand hover:border-matcha-light shadow-xs"
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5 flex-1 min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleReminder(reminder.id, reminder.status)}
+                            className="mt-0.5 text-mocha-muted hover:text-matcha-dark transition-colors"
+                          >
+                            {isCompleted ? (
+                              <CheckCircle2 className="w-5 h-5 text-matcha-dark" />
+                            ) : (
+                              <Circle className="w-5 h-5" />
+                            )}
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <p
+                              className={`text-sm font-medium leading-snug break-words ${
+                                isCompleted ? "line-through text-mocha-muted" : "text-mocha font-semibold"
+                              }`}
+                            >
+                              {reminder.taskTitle}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-mocha-muted">
+                              <span className="flex items-center gap-1 font-semibold text-matcha-dark">
+                                <Clock className="w-3.5 h-3.5" />
+                                {reminder.displayTime || formatInTimeZone(new Date(reminder.remindAt), "Asia/Bangkok", "HH:mm")} น.
+                              </span>
+                              {reminder.recurrence !== "NONE" && (
+                                <span className="px-2 py-0.5 bg-sand rounded-full text-[10px] font-bold text-mocha">
+                                  {reminder.recurrence === "DAILY"
+                                    ? "ทุกวัน"
+                                    : reminder.recurrence === "WEEKLY"
+                                    ? "ทุกสัปดาห์"
+                                    : "ทุกเดือน"}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleEditClick(reminder)}
+                            className="p-1.5 text-mocha-muted hover:text-matcha-dark hover:bg-sand-light rounded-lg transition-colors"
+                            title="แก้ไข"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteReminder(reminder.id)}
+                            className="p-1.5 text-mocha-muted hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            title="ลบ"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* SECTION 3: NOTES & SHOPPING LIST TAB */}
         {/* ========================================================================= */}
         {activeMainTab === "notes" && (
           <>
@@ -1906,6 +2300,94 @@ export default function LiffDashboard() {
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* STICKY BOTTOM NAVIGATION BAR (4 TABS) */}
+      {/* ========================================================================= */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-sand-light/95 backdrop-blur-md border-t border-sand shadow-[0_-4px_20px_rgba(0,0,0,0.06)] pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1.5 px-3">
+        <div className="max-w-md mx-auto grid grid-cols-4 gap-1">
+          {/* 1. Reminders */}
+          <button
+            onClick={() => setActiveMainTab("reminders")}
+            className={`relative flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all ${
+              activeMainTab === "reminders"
+                ? "text-matcha-dark font-bold scale-[1.02]"
+                : "text-mocha-muted/70 hover:text-mocha font-medium"
+            }`}
+          >
+            <div className={`p-1 rounded-xl transition-colors ${activeMainTab === "reminders" ? "bg-matcha-subtle" : ""}`}>
+              <Bell className="w-5 h-5" />
+            </div>
+            <span className="text-[11px] mt-0.5">แจ้งเตือน</span>
+            {stats.todayCount > 0 && (
+              <span className="absolute top-0.5 right-2 sm:right-4 min-w-[16px] h-4 px-1 rounded-full bg-matcha-dark text-white text-[9px] font-bold flex items-center justify-center shadow-xs">
+                {stats.todayCount}
+              </span>
+            )}
+          </button>
+
+          {/* 2. Calendar */}
+          <button
+            onClick={() => {
+              setActiveMainTab("calendar");
+              fetchReminders("all");
+            }}
+            className={`relative flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all ${
+              activeMainTab === "calendar"
+                ? "text-matcha-dark font-bold scale-[1.02]"
+                : "text-mocha-muted/70 hover:text-mocha font-medium"
+            }`}
+          >
+            <div className={`p-1 rounded-xl transition-colors ${activeMainTab === "calendar" ? "bg-matcha-subtle" : ""}`}>
+              <Calendar className="w-5 h-5" />
+            </div>
+            <span className="text-[11px] mt-0.5">ปฏิทิน</span>
+            {stats.totalPending > 0 && (
+              <span className="absolute top-1 right-4 sm:right-6 w-2 h-2 rounded-full bg-matcha-dark ring-2 ring-white"></span>
+            )}
+          </button>
+
+          {/* 3. Notes */}
+          <button
+            onClick={() => setActiveMainTab("notes")}
+            className={`relative flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all ${
+              activeMainTab === "notes"
+                ? "text-matcha-dark font-bold scale-[1.02]"
+                : "text-mocha-muted/70 hover:text-mocha font-medium"
+            }`}
+          >
+            <div className={`p-1 rounded-xl transition-colors ${activeMainTab === "notes" ? "bg-matcha-subtle" : ""}`}>
+              <CheckSquare className="w-5 h-5" />
+            </div>
+            <span className="text-[11px] mt-0.5">โน้ต</span>
+            {notes.length > 0 && (
+              <span className="absolute top-0.5 right-2 sm:right-4 min-w-[16px] h-4 px-1 rounded-full bg-sand text-mocha text-[9px] font-bold flex items-center justify-center border border-sand-darker/20">
+                {notes.length}
+              </span>
+            )}
+          </button>
+
+          {/* 4. Debt */}
+          <button
+            onClick={() => setActiveMainTab("debt")}
+            className={`relative flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all ${
+              activeMainTab === "debt"
+                ? "text-matcha-dark font-bold scale-[1.02]"
+                : "text-mocha-muted/70 hover:text-mocha font-medium"
+            }`}
+          >
+            <div className={`p-1 rounded-xl transition-colors ${activeMainTab === "debt" ? "bg-matcha-subtle" : ""}`}>
+              <Coins className="w-5 h-5" />
+            </div>
+            <span className="text-[11px] mt-0.5">หนี้สิน</span>
+            {debtSummary.people.length > 0 && (
+              <span className="absolute top-0.5 right-2 sm:right-4 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center shadow-xs">
+                {debtSummary.people.length}
+              </span>
+            )}
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }
