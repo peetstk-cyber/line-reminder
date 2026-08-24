@@ -1066,9 +1066,9 @@ export function createReminderSuccessCard(
         },
         {
           type: "button",
-          style: "primary",
+          style: "secondary",
           height: "sm",
-          color: "#3B5B3E",
+          color: "#EFEBE4",
           action: {
             type: "postback",
             label: "❌ ยกเลิก",
