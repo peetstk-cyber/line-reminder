@@ -151,7 +151,7 @@ export default function LiffDashboard() {
   const [activeNoteCategory, setActiveNoteCategory] = useState<"ALL" | "LINK" | "SHOPPING" | "TODO" | "GENERAL">("ALL");
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [newNoteTitle, setNewNoteTitle] = useState("");
-  const [newNoteCategory, setNewNoteCategory] = useState<"SHOPPING" | "TODO" | "GENERAL" | "LINK">("LINK");
+  const [newNoteCategory, setNewNoteCategory] = useState<"TODO" | "GENERAL" | "SHOPPING" | "LINK">("TODO");
   const [newNoteItemsText, setNewNoteItemsText] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [inlineNewItem, setInlineNewItem] = useState<{ [noteId: string]: string }>({});
@@ -1496,10 +1496,10 @@ export default function LiffDashboard() {
                   </label>
                   <div className="grid grid-cols-4 gap-1.5">
                     {[
-                      { key: "LINK", label: "🔗 ลิงก์" },
-                      { key: "SHOPPING", label: "🛒 ซื้อของ" },
                       { key: "TODO", label: "📌 To-Do" },
                       { key: "GENERAL", label: "📝 ทั่วไป" },
+                      { key: "SHOPPING", label: "🛒 ซื้อของ" },
+                      { key: "LINK", label: "🔗 ลิงก์" },
                     ].map((c) => (
                       <button
                         type="button"
@@ -1561,10 +1561,10 @@ export default function LiffDashboard() {
             <section className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
               {[
                 { key: "ALL", label: "ทั้งหมด" },
-                { key: "LINK", label: "🔗 ลิงก์เว็บ" },
-                { key: "SHOPPING", label: "🛒 ซื้อของ" },
                 { key: "TODO", label: "📌 สิ่งที่ต้องทำ" },
                 { key: "GENERAL", label: "📝 ทั่วไป" },
+                { key: "SHOPPING", label: "🛒 ซื้อของ" },
+                { key: "LINK", label: "🔗 ลิงก์เว็บ" },
               ].map((tab) => {
                 const isActive = activeNoteCategory === tab.key;
                 return (
