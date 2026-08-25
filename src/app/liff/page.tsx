@@ -1634,15 +1634,10 @@ export default function LiffDashboard() {
 
                           {/* Info */}
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5 mb-0.5">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-md border border-indigo-100 truncate max-w-[140px]">
-                                {domain}
-                              </span>
-                            </div>
                             <h3 className="text-sm font-bold text-mocha truncate" title={note.title}>
                               {note.title}
                             </h3>
-                            <p className="text-[11px] text-mocha-muted/70 truncate font-mono mt-0.5" title={url}>
+                            <p className="text-xs text-mocha-muted/70 truncate font-mono mt-0.5" title={url}>
                               {url}
                             </p>
                           </div>
