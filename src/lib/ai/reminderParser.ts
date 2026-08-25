@@ -32,7 +32,7 @@ export const AssistantResultSchema = z.object({
   noteAction: z.enum(["CREATE", "LIST", "DELETE"]).nullish().describe("Action สำหรับโน้ต"),
   noteTitle: z.string().nullish().describe("หัวข้อของโน้ต เช่น 'รายการซื้อของ', 'รายการยา', 'สิ่งที่ต้องทำ'"),
   noteItems: z.array(z.string()).nullish().describe("รายการย่อย เช่น ['metoprolol', 'metoclopramide'] หรือ ['น้ำ', 'ขนมปัง']"),
-  noteCategory: z.enum(["SHOPPING", "TODO", "GENERAL"]).nullish(),
+  noteCategory: z.enum(["SHOPPING", "TODO", "GENERAL", "LINK"]).nullish(),
 
   // DEBT DETAILS
   debtAction: z.enum(["CREATE", "LIST", "SETTLE"]).nullish().describe("Action สำหรับจัดการหนี้"),
@@ -496,6 +496,46 @@ export async function parseAssistantIntent(
     }
   }
 
+  // Fast-path for TODO Notes (<1ms instant response): จด, จดงาน, o, O, ๐, todo, to-do, สิ่งที่ต้องทำ, งาน
+  const todoPrefixMatch = trimmed.match(
+    /^(?:จดงาน|จด|o|O|๐|todo|to-do|สิ่งที่ต้องทำ|งาน)(?:\s+|:)(.+)$/is
+  );
+  if (todoPrefixMatch) {
+    const rawContent = todoPrefixMatch[1].trim();
+    const items = rawContent
+      .split(/[\n,;]|(?:\s*-\s*)|\s*•\s*/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    return {
+      type: "NOTE",
+      noteAction: "CREATE",
+      noteTitle: "สิ่งที่ต้องทำ",
+      noteCategory: "TODO",
+      noteItems: items.length > 0 ? items : [rawContent],
+    };
+  }
+
+  // Fast-path for SHOPPING Notes: ซื้อของ, ซื้อ, ช้อปปิ้ง, รายการซื้อ
+  const shoppingPrefixMatch = trimmed.match(
+    /^(?:ซื้อของ|ซื้อ|ช้อปปิ้ง|รายการซื้อ)(?:\s+|:)(.+)$/is
+  );
+  if (shoppingPrefixMatch) {
+    const rawContent = shoppingPrefixMatch[1].trim();
+    const items = rawContent
+      .split(/[\n,;]|(?:\s*-\s*)|\s*•\s*/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    return {
+      type: "NOTE",
+      noteAction: "CREATE",
+      noteTitle: "รายการซื้อของ",
+      noteCategory: "SHOPPING",
+      noteItems: items.length > 0 ? items : [rawContent],
+    };
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not configured in environment variables");
@@ -512,11 +552,16 @@ export async function parseAssistantIntent(
   const currentISO = formatInTimeZone(now, userTimezone, "yyyy-MM-dd'T'HH:mm:ssXXX");
 
   const systemInstruction = `
-
 2. type: "NOTE" (การจดโน้ต / บันทึกรายการ / รายการซื้อของ / ยา / สิ่งที่ต้องทำ)
-   - เมื่อมีคำว่า: "จดโน้ต", "จดโน๊ต", "โน้ต", "โน๊ต", "บันทึก", "ซื้อของ", "รายการ", "list" หรือรายการของสั้นๆ เช่น "นาฬิกา กล้อง กระดาษ"
-   - ถ้าผู้ใช้พิมพ์รายการต่อท้าย เช่น "จดโน้ต นาฬิกา กล้อง กระดาษ" หรือ "นาฬิกา กล้อง กระดาษ"
-     -> type: "NOTE", noteAction: "CREATE", noteItems: ["นาฬิกา", "กล้อง", "กระดาษ"], noteTitle: "โน้ตบันทึก", noteCategory: "GENERAL"
+   - Category: "TODO" (สิ่งที่ต้องทำ)
+     * เมื่อขึ้นต้นด้วยคำว่า: "จด", "จดงาน", "o", "O", "todo", "to do", "สิ่งที่ต้องทำ", "งาน"
+     * ตัวอย่าง: "จด ทำ reflection" -> type: "NOTE", noteAction: "CREATE", noteItems: ["ทำ reflection"], noteTitle: "สิ่งที่ต้องทำ", noteCategory: "TODO"
+     * ตัวอย่าง: "จดงาน ส่งเอกสาร ทำสไลด์" -> type: "NOTE", noteAction: "CREATE", noteItems: ["ส่งเอกสาร", "ทำสไลด์"], noteTitle: "สิ่งที่ต้องทำ", noteCategory: "TODO"
+     * ตัวอย่าง: "o ซักผ้า ล้างจาน" -> type: "NOTE", noteAction: "CREATE", noteItems: ["ซักผ้า", "ล้างจาน"], noteTitle: "สิ่งที่ต้องทำ", noteCategory: "TODO"
+   - Category: "SHOPPING" (ซื้อของ)
+     * เมื่อขึ้นต้นด้วย: "ซื้อของ", "ซื้อ", "ช้อปปิ้ง", "รายการซื้อ" เช่น "ซื้อของ นม ไข่ไก่"
+   - Category: "GENERAL" (โน้ตทั่วไป / บันทึกความรู้ / บันทึกข้อมูล)
+     * เมื่อขึ้นต้นด้วย: "โน้ต", "โน๊ต", "บันทึก" เช่น "โน้ต รหัส wifi 1234", "บันทึก สูตรยา STEMI"
    - ถ้าผู้ใช้พูดว่า "ดูโน้ต", "ดูโน๊ต", "โน้ตทั้งหมด", "มีโน้ตอะไรบ้าง" -> type: "NOTE", noteAction: "LIST"
 
 3. type: "REMINDER" (การตั้งเตือนความจำที่มีกิจกรรมและเวลา)
@@ -602,7 +647,7 @@ ${
               noteCategory: {
                 type: SchemaType.STRING,
                 format: "enum",
-                enum: ["SHOPPING", "TODO", "GENERAL"],
+                enum: ["SHOPPING", "TODO", "GENERAL", "LINK"],
                 nullable: true,
               },
               debtAction: {
