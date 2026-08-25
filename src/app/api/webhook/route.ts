@@ -7,11 +7,13 @@ import { parseAssistantIntent } from "@/lib/ai/reminderParser";
 import {
   createReminderSuccessCard,
   createNoteSuccessCard,
+  createLinkSavedCard,
   createMorningBriefCard,
   createDebtSuccessCard,
   createDebtSummaryCard,
   getThaiDateString,
 } from "@/lib/line/flexTemplates";
+import { extractUrlFromText, fetchUrlMetadata } from "@/lib/urlMetadata";
 import { formatInTimeZone } from "date-fns-tz";
 import { neon } from "@neondatabase/serverless";
 
@@ -130,6 +132,51 @@ async function handleTextMessage(
   user?: any
 ) {
   const trimmedText = userText.trim();
+
+  // 0. Auto-capture Web Links (เมื่อผู้ใช้ส่งหรือแปะลิงก์ในช่องแชท)
+  const detectedUrl = extractUrlFromText(trimmedText);
+  if (detectedUrl) {
+    try {
+      const meta = await fetchUrlMetadata(detectedUrl);
+      await db.createNote({
+        userId,
+        title: meta.title,
+        items: [
+          {
+            id: "link-" + Math.random().toString(36).substring(2, 9),
+            text: detectedUrl,
+            completed: false,
+          },
+        ],
+        category: "LINK",
+      });
+
+      const flexMessage = createLinkSavedCard(
+        meta.title,
+        detectedUrl,
+        meta.domain,
+        meta.description
+      );
+
+      await lineClient.replyMessage({
+        replyToken,
+        messages: [flexMessage],
+      });
+      return;
+    } catch (linkErr) {
+      console.error("Failed to auto-save link note:", linkErr);
+      await lineClient.replyMessage({
+        replyToken,
+        messages: [
+          {
+            type: "text",
+            text: `🔗 บันทึกลิงก์ "${detectedUrl}" เข้าระบบโน้ตเรียบร้อยแล้วครับ! 🌿`,
+          },
+        ],
+      });
+      return;
+    }
+  }
 
   // 1. วิเคราะห์ Intent ด้วย Gemini AI Master Router
   let assistant;

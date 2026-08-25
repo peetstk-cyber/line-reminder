@@ -870,6 +870,151 @@ export function createNoteSuccessCard(
   };
 }
 
+/**
+ * สร้าง Flex Message สำหรับบันทึกลิงก์เว็บไซต์สำเร็จ (Web Link Card)
+ */
+export function createLinkSavedCard(
+  title: string,
+  url: string,
+  domain: string,
+  description?: string
+): messagingApi.FlexMessage {
+  const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
+  const liffUrl = liffId ? `https://liff.line.me/${liffId}?tab=notes` : `https://line.me`;
+  const faviconUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`;
+
+  const bubble: messagingApi.FlexBubble = {
+    type: "bubble",
+    size: "mega",
+    header: {
+      type: "box",
+      layout: "horizontal",
+      backgroundColor: "#EEF2FF",
+      paddingAll: "16px",
+      alignItems: "center",
+      spacing: "md",
+      contents: [
+        {
+          type: "image",
+          url: faviconUrl,
+          size: "xxs",
+          aspectRatio: "1:1",
+          aspectMode: "fit",
+          flex: 0,
+        },
+        {
+          type: "box",
+          layout: "vertical",
+          flex: 1,
+          contents: [
+            {
+              type: "text",
+              text: "🔗 บันทึกลิงก์เว็บเรียบร้อย",
+              weight: "bold",
+              size: "sm",
+              color: "#3730A3",
+            },
+            {
+              type: "text",
+              text: domain,
+              size: "xxs",
+              color: "#6366F1",
+            },
+          ],
+        },
+      ],
+    },
+    body: {
+      type: "box",
+      layout: "vertical",
+      backgroundColor: "#FFFFFF",
+      paddingAll: "16px",
+      spacing: "sm",
+      contents: [
+        {
+          type: "text",
+          text: title,
+          weight: "bold",
+          size: "md",
+          color: "#2C221E",
+          wrap: true,
+          maxLines: 2,
+        },
+        ...(description
+          ? [
+              {
+                type: "text" as const,
+                text: description,
+                size: "xs" as const,
+                color: "#766E65",
+                wrap: true,
+                maxLines: 2,
+                margin: "xs" as const,
+              },
+            ]
+          : []),
+        {
+          type: "box",
+          layout: "horizontal",
+          margin: "md",
+          backgroundColor: "#F8F9FA",
+          paddingAll: "8px",
+          cornerRadius: "8px",
+          contents: [
+            {
+              type: "text",
+              text: url,
+              size: "xxs",
+              color: "#6B7280",
+              wrap: false,
+              maxLines: 1,
+            },
+          ],
+        },
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "horizontal",
+      backgroundColor: "#FAF7F2",
+      paddingAll: "12px",
+      spacing: "sm",
+      contents: [
+        {
+          type: "button",
+          style: "primary",
+          color: "#4F46E5",
+          height: "sm",
+          flex: 1,
+          action: {
+            type: "uri",
+            label: "🌐 เปิดดูเว็บ",
+            uri: url,
+          },
+        },
+        {
+          type: "button",
+          style: "secondary",
+          color: "#EFEBE4",
+          height: "sm",
+          flex: 1,
+          action: {
+            type: "uri",
+            label: "📝 ดูในโน้ต",
+            uri: liffUrl,
+          },
+        },
+      ],
+    },
+  };
+
+  return {
+    type: "flex",
+    altText: `🔗 บันทึกลิงก์: ${title} (${domain})`,
+    contents: bubble,
+  };
+}
+
 
 /**
  * สร้าง Flex Message การ์ดยืนยันการตั้งเตือนสำเร็จ (Theme สีเขียว Muted Matcha)

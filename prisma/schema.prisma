@@ -24,6 +24,7 @@ enum NoteCategory {
   SHOPPING
   TODO
   GENERAL
+  LINK
 }
 
 enum DebtType {

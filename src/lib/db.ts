@@ -44,7 +44,7 @@ export interface DbNote {
   userId: string;
   title: string;
   items: DbNoteItem[];
-  category: "SHOPPING" | "TODO" | "GENERAL";
+  category: "SHOPPING" | "TODO" | "GENERAL" | "LINK";
   isPinned: boolean;
   createdAt: string;
   updatedAt: string;
@@ -315,7 +315,7 @@ export const db = {
     userId: string;
     title: string;
     items?: DbNoteItem[];
-    category?: "SHOPPING" | "TODO" | "GENERAL";
+    category?: "SHOPPING" | "TODO" | "GENERAL" | "LINK";
     isPinned?: boolean;
   }): Promise<DbNote> {
     await this.ensureTablesExist();
@@ -367,7 +367,7 @@ export const db = {
   async updateNote(id: string, data: {
     title?: string;
     items?: DbNoteItem[];
-    category?: "SHOPPING" | "TODO" | "GENERAL";
+    category?: "SHOPPING" | "TODO" | "GENERAL" | "LINK";
     isPinned?: boolean;
   }): Promise<DbNote | null> {
     await this.ensureTablesExist();

@@ -31,6 +31,10 @@ import {
   ChevronLeft,
   ChevronRight,
   CalendarDays,
+  ExternalLink,
+  Copy,
+  Globe,
+  Link as LinkIcon,
 } from "lucide-react";
 import { PRESET_AVATARS, getAvatarInfo, PresetAvatar } from "@/lib/avatar";
 import { formatInTimeZone } from "date-fns-tz";
@@ -58,7 +62,7 @@ interface Note {
   userId: string;
   title: string;
   items: NoteItem[];
-  category: "SHOPPING" | "TODO" | "GENERAL";
+  category: "SHOPPING" | "TODO" | "GENERAL" | "LINK";
   isPinned: boolean;
   createdAt: string;
   updatedAt: string;
@@ -144,13 +148,14 @@ export default function LiffDashboard() {
 
   // Notes State
   const [notes, setNotes] = useState<Note[]>([]);
-  const [activeNoteCategory, setActiveNoteCategory] = useState<"ALL" | "SHOPPING" | "TODO" | "GENERAL">("ALL");
+  const [activeNoteCategory, setActiveNoteCategory] = useState<"ALL" | "LINK" | "SHOPPING" | "TODO" | "GENERAL">("ALL");
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [newNoteTitle, setNewNoteTitle] = useState("");
-  const [newNoteCategory, setNewNoteCategory] = useState<"SHOPPING" | "TODO" | "GENERAL">("SHOPPING");
+  const [newNoteCategory, setNewNoteCategory] = useState<"SHOPPING" | "TODO" | "GENERAL" | "LINK">("LINK");
   const [newNoteItemsText, setNewNoteItemsText] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [inlineNewItem, setInlineNewItem] = useState<{ [noteId: string]: string }>({});
+  const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
 
   // Debts State
   const [debtSummary, setDebtSummary] = useState<DebtSummary>({
@@ -713,9 +718,29 @@ export default function LiffDashboard() {
   };
 
   const noteCategoryInfo: Record<string, { label: string; emoji: string; bg: string; text: string }> = {
+    LINK: { label: "ลิงก์เว็บ", emoji: "🔗", bg: "bg-indigo-50 border-indigo-200", text: "text-indigo-800" },
     SHOPPING: { label: "ซื้อของ", emoji: "🛒", bg: "bg-emerald-50 border-emerald-200", text: "text-emerald-800" },
     TODO: { label: "สิ่งที่ต้องทำ", emoji: "📌", bg: "bg-amber-50 border-amber-200", text: "text-amber-800" },
     GENERAL: { label: "ทั่วไป", emoji: "📝", bg: "bg-blue-50 border-blue-200", text: "text-blue-800" },
+  };
+
+  const extractDomainFromUrl = (url: string): string => {
+    try {
+      const parsed = new URL(url);
+      return parsed.hostname.replace(/^www\./, "");
+    } catch (e) {
+      return "website.com";
+    }
+  };
+
+  const handleCopyLink = async (noteId: string, url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedLinkId(noteId);
+      setTimeout(() => setCopiedLinkId(null), 2000);
+    } catch (e) {
+      console.error("Failed to copy link:", e);
+    }
   };
 
   // Filtered people for Debt tab
@@ -1448,13 +1473,17 @@ export default function LiffDashboard() {
                 {/* Title */}
                 <div>
                   <label className="block text-xs font-semibold text-mocha-muted mb-1">
-                    หัวข้อโน้ต
+                    {newNoteCategory === "LINK" ? "ชื่อเว็บไซต์ / หัวข้อ *" : "หัวข้อโน้ต *"}
                   </label>
                   <input
                     type="text"
                     value={newNoteTitle}
                     onChange={(e) => setNewNoteTitle(e.target.value)}
-                    placeholder="เช่น รายการซื้อของเข้าบ้าน, เมนูอาหารเย็น"
+                    placeholder={
+                      newNoteCategory === "LINK"
+                        ? "เช่น บทความ AI, เพลง YouTube, เอกสารงาน"
+                        : "เช่น รายการซื้อของเข้าบ้าน, เมนูอาหารเย็น"
+                    }
                     required
                     className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-sm text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
                   />
@@ -1465,8 +1494,9 @@ export default function LiffDashboard() {
                   <label className="block text-xs font-semibold text-mocha-muted mb-1">
                     หมวดหมู่
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-4 gap-1.5">
                     {[
+                      { key: "LINK", label: "🔗 ลิงก์" },
                       { key: "SHOPPING", label: "🛒 ซื้อของ" },
                       { key: "TODO", label: "📌 To-Do" },
                       { key: "GENERAL", label: "📝 ทั่วไป" },
@@ -1490,13 +1520,19 @@ export default function LiffDashboard() {
                 {/* Items */}
                 <div>
                   <label className="block text-xs font-semibold text-mocha-muted mb-1">
-                    รายการย่อย (พิมพ์แยกบรรทัด หรือคั่นด้วยจุลภาค)
+                    {newNoteCategory === "LINK"
+                      ? "ลิงก์ URL เว็บไซต์ (https://...) *"
+                      : "รายการย่อย (พิมพ์แยกบรรทัด หรือคั่นด้วยจุลภาค)"}
                   </label>
                   <textarea
-                    rows={3}
+                    rows={newNoteCategory === "LINK" ? 2 : 3}
                     value={newNoteItemsText}
                     onChange={(e) => setNewNoteItemsText(e.target.value)}
-                    placeholder={"น้ำดื่ม\nขนมปัง\nสาหร่าย\nไข่ไก่"}
+                    placeholder={
+                      newNoteCategory === "LINK"
+                        ? "https://www.youtube.com/watch?v=..."
+                        : "น้ำดื่ม\nขนมปัง\nสาหร่าย\nไข่ไก่"
+                    }
                     className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-sm text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
                   />
                 </div>
@@ -1525,6 +1561,7 @@ export default function LiffDashboard() {
             <section className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
               {[
                 { key: "ALL", label: "ทั้งหมด" },
+                { key: "LINK", label: "🔗 ลิงก์เว็บ" },
                 { key: "SHOPPING", label: "🛒 ซื้อของ" },
                 { key: "TODO", label: "📌 สิ่งที่ต้องทำ" },
                 { key: "GENERAL", label: "📝 ทั่วไป" },
@@ -1547,7 +1584,7 @@ export default function LiffDashboard() {
             </section>
 
             {/* Notes Cards List */}
-            <section className="space-y-4">
+            <section className="space-y-3">
               {loading ? (
                 <div className="py-12 flex flex-col items-center justify-center gap-2 text-mocha-muted">
                   <Loader2 className="w-6 h-6 animate-spin text-matcha-dark" />
@@ -1560,13 +1597,107 @@ export default function LiffDashboard() {
                   </div>
                   <p className="text-sm font-semibold text-mocha">ยังไม่มีโน้ตในหมวดนี้</p>
                   <p className="text-xs text-mocha-muted">
-                    กดปุ่มสร้างโน้ตด้านบน หรือพิมพ์บอกใน LINE ได้เลย เช่น &ldquo;จดโน้ต ซื้อไข่ไก่ นม ขนมปัง&rdquo;
+                    กดปุ่มสร้างโน้ตด้านบน หรือก๊อปปี้ลิงก์/ข้อความส่งในแชท LINE ได้เลยครับ
                   </p>
                 </div>
               ) : (
                 notes.map((note) => {
                   const cat = noteCategoryInfo[note.category] || noteCategoryInfo.GENERAL;
                   const items = Array.isArray(note.items) ? note.items : [];
+
+                  // ==========================================
+                  // CASE A: LINK CATEGORY (Horizontal Link Card)
+                  // ==========================================
+                  if (note.category === "LINK") {
+                    const url = items[0]?.text || "";
+                    const domain = extractDomainFromUrl(url);
+                    const isCopied = copiedLinkId === note.id;
+
+                    return (
+                      <div
+                        key={note.id}
+                        className="bg-white rounded-2xl border border-sand shadow-sm hover:shadow-md transition-all p-3.5 flex items-center justify-between gap-3 group"
+                      >
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          {/* Favicon Icon */}
+                          <div className="w-11 h-11 rounded-2xl bg-indigo-50/90 border border-indigo-100 flex items-center justify-center shrink-0 overflow-hidden shadow-xs">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`}
+                              alt={domain}
+                              className="w-6 h-6 object-contain"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = "none";
+                              }}
+                            />
+                          </div>
+
+                          {/* Info */}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-md border border-indigo-100 truncate max-w-[140px]">
+                                {domain}
+                              </span>
+                            </div>
+                            <h3 className="text-sm font-bold text-mocha truncate" title={note.title}>
+                              {note.title}
+                            </h3>
+                            <p className="text-[11px] text-mocha-muted/70 truncate font-mono mt-0.5" title={url}>
+                              {url}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          {/* Copy Link Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleCopyLink(note.id, url)}
+                            className={`p-2 rounded-xl transition-all ${
+                              isCopied
+                                ? "bg-emerald-50 text-emerald-600 font-bold"
+                                : "text-mocha-muted hover:text-indigo-600 hover:bg-indigo-50"
+                            }`}
+                            title="คัดลอกลิงก์"
+                          >
+                            {isCopied ? (
+                              <Check className="w-4 h-4 text-emerald-600 animate-in zoom-in" />
+                            ) : (
+                              <Copy className="w-4 h-4" />
+                            )}
+                          </button>
+
+                          {/* Open Link Button */}
+                          {url && (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-2 text-mocha-muted hover:text-matcha-dark hover:bg-matcha-subtle rounded-xl transition-colors"
+                              title="เปิดเว็บไซต์"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                            </a>
+                          )}
+
+                          {/* Delete Note Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteNote(note.id)}
+                            className="p-2 text-mocha-muted hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                            title="ลบลิงก์นี้"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // ==========================================
+                  // CASE B: REGULAR CHECKLIST NOTES
+                  // ==========================================
                   const completedCount = items.filter((it) => it.completed).length;
                   const totalCount = items.length;
                   const percent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
