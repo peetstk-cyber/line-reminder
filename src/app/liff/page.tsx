@@ -62,7 +62,7 @@ interface Note {
   userId: string;
   title: string;
   items: NoteItem[];
-  category: "SHOPPING" | "TODO" | "GENERAL" | "LINK";
+  category: "SHOPPING" | "TODO" | "GENERAL" | "LINK" | "READING";
   isPinned: boolean;
   createdAt: string;
   updatedAt: string;
@@ -148,10 +148,10 @@ export default function LiffDashboard() {
 
   // Notes State
   const [notes, setNotes] = useState<Note[]>([]);
-  const [activeNoteCategory, setActiveNoteCategory] = useState<"ALL" | "LINK" | "SHOPPING" | "TODO" | "GENERAL">("ALL");
+  const [activeNoteCategory, setActiveNoteCategory] = useState<"ALL" | "LINK" | "SHOPPING" | "TODO" | "GENERAL" | "READING">("ALL");
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [newNoteTitle, setNewNoteTitle] = useState("");
-  const [newNoteCategory, setNewNoteCategory] = useState<"TODO" | "GENERAL" | "SHOPPING" | "LINK">("TODO");
+  const [newNoteCategory, setNewNoteCategory] = useState<"TODO" | "GENERAL" | "SHOPPING" | "LINK" | "READING">("TODO");
   const [newNoteItemsText, setNewNoteItemsText] = useState("");
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [inlineNewItem, setInlineNewItem] = useState<{ [noteId: string]: string }>({});
@@ -719,8 +719,9 @@ export default function LiffDashboard() {
 
   const noteCategoryInfo: Record<string, { label: string; emoji: string; bg: string; text: string }> = {
     LINK: { label: "ลิงก์เว็บ", emoji: "🔗", bg: "bg-indigo-50 border-indigo-200", text: "text-indigo-800" },
-    SHOPPING: { label: "ซื้อของ", emoji: "🛒", bg: "bg-emerald-50 border-emerald-200", text: "text-emerald-800" },
-    TODO: { label: "สิ่งที่ต้องทำ", emoji: "📌", bg: "bg-amber-50 border-amber-200", text: "text-amber-800" },
+    READING: { label: "ต้องอ่าน", emoji: "📚", bg: "bg-amber-50 border-amber-200", text: "text-amber-800" },
+    TODO: { label: "สิ่งที่ต้องทำ", emoji: "📌", bg: "bg-emerald-50 border-emerald-200", text: "text-emerald-800" },
+    SHOPPING: { label: "ซื้อของ", emoji: "🛒", bg: "bg-orange-50 border-orange-200", text: "text-orange-800" },
     GENERAL: { label: "ทั่วไป", emoji: "📝", bg: "bg-blue-50 border-blue-200", text: "text-blue-800" },
   };
 
@@ -1473,7 +1474,11 @@ export default function LiffDashboard() {
                 {/* Title */}
                 <div>
                   <label className="block text-xs font-semibold text-mocha-muted mb-1">
-                    {newNoteCategory === "LINK" ? "ชื่อเว็บไซต์ / หัวข้อ *" : "หัวข้อโน้ต *"}
+                    {newNoteCategory === "LINK"
+                      ? "ชื่อเว็บไซต์ / หัวข้อ *"
+                      : newNoteCategory === "READING"
+                      ? "หัวข้อการอ่าน *"
+                      : "หัวข้อโน้ต *"}
                   </label>
                   <input
                     type="text"
@@ -1482,6 +1487,8 @@ export default function LiffDashboard() {
                     placeholder={
                       newNoteCategory === "LINK"
                         ? "เช่น บทความ AI, เพลง YouTube, เอกสารงาน"
+                        : newNoteCategory === "READING"
+                        ? "เช่น svc syndrome, pulmonary hypertension"
                         : "เช่น รายการซื้อของเข้าบ้าน, เมนูอาหารเย็น"
                     }
                     required
@@ -1494,8 +1501,9 @@ export default function LiffDashboard() {
                   <label className="block text-xs font-semibold text-mocha-muted mb-1">
                     หมวดหมู่
                   </label>
-                  <div className="grid grid-cols-4 gap-1.5">
+                  <div className="grid grid-cols-5 gap-1">
                     {[
+                      { key: "READING", label: "📚 อ่าน" },
                       { key: "TODO", label: "📌 To-Do" },
                       { key: "GENERAL", label: "📝 ทั่วไป" },
                       { key: "SHOPPING", label: "🛒 ซื้อของ" },
@@ -1522,6 +1530,8 @@ export default function LiffDashboard() {
                   <label className="block text-xs font-semibold text-mocha-muted mb-1">
                     {newNoteCategory === "LINK"
                       ? "ลิงก์ URL เว็บไซต์ (https://...) *"
+                      : newNoteCategory === "READING"
+                      ? "หัวข้อย่อยที่ต้องอ่าน (พิมพ์แยกบรรทัด หรือคั่นด้วยจุลภาค)"
                       : "รายการย่อย (พิมพ์แยกบรรทัด หรือคั่นด้วยจุลภาค)"}
                   </label>
                   <textarea
@@ -1531,6 +1541,8 @@ export default function LiffDashboard() {
                     placeholder={
                       newNoteCategory === "LINK"
                         ? "https://www.youtube.com/watch?v=..."
+                        : newNoteCategory === "READING"
+                        ? "svc syndrome\npulmonary hypertension\nivs obstruction"
                         : "น้ำดื่ม\nขนมปัง\nสาหร่าย\nไข่ไก่"
                     }
                     className="w-full bg-sand-light border border-sand rounded-xl px-3 py-2 text-sm text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
@@ -1561,6 +1573,7 @@ export default function LiffDashboard() {
             <section className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
               {[
                 { key: "ALL", label: "ทั้งหมด" },
+                { key: "READING", label: "📚 ต้องอ่าน" },
                 { key: "TODO", label: "📌 สิ่งที่ต้องทำ" },
                 { key: "GENERAL", label: "📝 ทั่วไป" },
                 { key: "SHOPPING", label: "🛒 ซื้อของ" },

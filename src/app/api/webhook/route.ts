@@ -232,7 +232,15 @@ async function handleTextMessage(
       try {
         note = await db.createNote({
           userId,
-          title: assistant.noteTitle || (assistant.noteCategory === "SHOPPING" ? "รายการซื้อของ" : "โน้ตบันทึก"),
+          title:
+            assistant.noteTitle ||
+            (assistant.noteCategory === "READING"
+              ? "หัวข้อที่ต้องอ่าน"
+              : assistant.noteCategory === "SHOPPING"
+              ? "รายการซื้อของ"
+              : assistant.noteCategory === "TODO"
+              ? "สิ่งที่ต้องทำ"
+              : "โน้ตบันทึก"),
           items: noteItems,
           category: assistant.noteCategory || "GENERAL",
         });
@@ -241,7 +249,15 @@ async function handleTextMessage(
         note = {
           id: "temp-note-" + Date.now(),
           userId,
-          title: assistant.noteTitle || "รายการบันทึก",
+          title:
+            assistant.noteTitle ||
+            (assistant.noteCategory === "READING"
+              ? "หัวข้อที่ต้องอ่าน"
+              : assistant.noteCategory === "SHOPPING"
+              ? "รายการซื้อของ"
+              : assistant.noteCategory === "TODO"
+              ? "สิ่งที่ต้องทำ"
+              : "รายการบันทึก"),
           items: noteItems,
           category: (assistant.noteCategory || "GENERAL") as any,
           isPinned: false,

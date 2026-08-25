@@ -63,7 +63,15 @@ export async function POST(req: NextRequest) {
 
     const note = await db.createNote({
       userId: user.id,
-      title: title || (category === "SHOPPING" ? "รายการซื้อของ" : "โน้ตใหม่"),
+      title:
+        title ||
+        (category === "READING"
+          ? "หัวข้อที่ต้องอ่าน"
+          : category === "SHOPPING"
+          ? "รายการซื้อของ"
+          : category === "TODO"
+          ? "สิ่งที่ต้องทำ"
+          : "โน้ตใหม่"),
       items: formattedItems,
       category: category || "GENERAL",
       isPinned: !!isPinned,

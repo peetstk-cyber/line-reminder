@@ -44,7 +44,7 @@ export interface DbNote {
   userId: string;
   title: string;
   items: DbNoteItem[];
-  category: "SHOPPING" | "TODO" | "GENERAL" | "LINK";
+  category: "SHOPPING" | "TODO" | "GENERAL" | "LINK" | "READING";
   isPinned: boolean;
   createdAt: string;
   updatedAt: string;
@@ -315,7 +315,7 @@ export const db = {
     userId: string;
     title: string;
     items?: DbNoteItem[];
-    category?: "SHOPPING" | "TODO" | "GENERAL" | "LINK";
+    category?: "SHOPPING" | "TODO" | "GENERAL" | "LINK" | "READING";
     isPinned?: boolean;
   }): Promise<DbNote> {
     await this.ensureTablesExist();
@@ -367,7 +367,7 @@ export const db = {
   async updateNote(id: string, data: {
     title?: string;
     items?: DbNoteItem[];
-    category?: "SHOPPING" | "TODO" | "GENERAL" | "LINK";
+    category?: "SHOPPING" | "TODO" | "GENERAL" | "LINK" | "READING";
     isPinned?: boolean;
   }): Promise<DbNote | null> {
     await this.ensureTablesExist();
@@ -475,6 +475,43 @@ export const db = {
     return {
       todayReminders: reminderRows as DbReminder[],
       pendingNotes,
+    };
+  },
+
+  async findEveningReadingBriefData(userId: string): Promise<{
+    hasPending: boolean;
+    readingNotes: { id: string; title: string; pendingItems: string[]; totalItems: number; completedCount: number }[];
+  }> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+
+    const noteRows = await sql`
+      SELECT * FROM "notes"
+      WHERE "userId" = ${userId} AND "category" = 'READING'
+      ORDER BY "isPinned" DESC, "updatedAt" DESC;
+    `;
+
+    const readingNotes: { id: string; title: string; pendingItems: string[]; totalItems: number; completedCount: number }[] = [];
+
+    for (const note of noteRows as DbNote[]) {
+      const items: DbNoteItem[] = Array.isArray(note.items) ? note.items : [];
+      const pending = items.filter((it) => !it.completed).map((it) => it.text);
+      const completedCount = items.filter((it) => it.completed).length;
+
+      if (pending.length > 0) {
+        readingNotes.push({
+          id: note.id,
+          title: note.title,
+          pendingItems: pending,
+          totalItems: items.length,
+          completedCount,
+        });
+      }
+    }
+
+    return {
+      hasPending: readingNotes.length > 0,
+      readingNotes,
     };
   },
 

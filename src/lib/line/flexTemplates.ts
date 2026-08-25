@@ -711,6 +711,7 @@ export function createNoteSuccessCard(
     SHOPPING: { name: "รายการซื้อของ", emoji: "🛒", bg: "#EBF5EB" },
     TODO: { name: "สิ่งที่ต้องทำ", emoji: "📌", bg: "#FEF3C7" },
     GENERAL: { name: "โน้ตทั่วไป", emoji: "📝", bg: "#E0E7FF" },
+    READING: { name: "หัวข้อที่ต้องอ่าน", emoji: "📚", bg: "#FEF9C3" },
   };
 
   const cat = categoryLabel[note.category] || categoryLabel.GENERAL;
@@ -1342,3 +1343,166 @@ export function createReminderAlertCard(
     contents: bubble,
   };
 }
+
+/**
+ * สร้าง Flex Message สำหรับแจ้งเตือนสรุปหัวข้อที่ต้องอ่านยามค่ำคืน (20:00 น.)
+ */
+export function createReadingEveningBriefCard(data: {
+  displayName: string;
+  readingNotes: { id: string; title: string; pendingItems: string[]; totalItems: number; completedCount: number }[];
+}): messagingApi.FlexMessage {
+  const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
+  const liffUrl = liffId ? `https://liff.line.me/${liffId}?tab=notes&category=READING` : `https://line.me`;
+
+  const totalPending = data.readingNotes.reduce((sum, n) => sum + n.pendingItems.length, 0);
+
+  // Flatten top pending items (up to 6 items across notes)
+  const previewItems: { noteTitle: string; text: string }[] = [];
+  for (const n of data.readingNotes) {
+    for (const item of n.pendingItems) {
+      if (previewItems.length < 6) {
+        previewItems.push({ noteTitle: n.title, text: item });
+      }
+    }
+  }
+
+  const itemsContents: messagingApi.FlexComponent[] = previewItems.map((it) => ({
+    type: "box",
+    layout: "horizontal",
+    spacing: "sm",
+    margin: "sm",
+    alignItems: "flex-start",
+    contents: [
+      {
+        type: "text",
+        text: "📖",
+        size: "xs",
+        flex: 1,
+      },
+      {
+        type: "text",
+        text: it.text,
+        size: "sm",
+        color: "#2C221E",
+        weight: "bold",
+        wrap: true,
+        flex: 9,
+      },
+    ],
+  }));
+
+  if (totalPending > 6) {
+    itemsContents.push({
+      type: "text",
+      text: `...และอีก ${totalPending - 6} หัวข้อที่รออ่าน`,
+      size: "xs",
+      color: "#854D0E",
+      style: "italic",
+      margin: "md",
+    });
+  }
+
+  const bubble: messagingApi.FlexBubble = {
+    type: "bubble",
+    size: "mega",
+    header: {
+      type: "box",
+      layout: "horizontal",
+      backgroundColor: "#FEF9C3", // Warm Yellow / Book color
+      paddingAll: "16px",
+      alignItems: "center",
+      contents: [
+        {
+          type: "box",
+          layout: "horizontal",
+          backgroundColor: "#CA8A04",
+          width: "28px",
+          height: "28px",
+          cornerRadius: "14px",
+          alignItems: "center",
+          justifyContent: "center",
+          contents: [
+            {
+              type: "text",
+              text: "📚",
+              size: "sm",
+              align: "center",
+            },
+          ],
+        },
+        {
+          type: "box",
+          layout: "vertical",
+          margin: "md",
+          contents: [
+            {
+              type: "text",
+              text: "ได้เวลาอ่านหนังสือแล้ว 🌙",
+              weight: "bold",
+              color: "#713F12",
+              size: "sm",
+            },
+            {
+              type: "text",
+              text: `20:00 น. • มี ${totalPending} หัวข้อรอทบทวน`,
+              color: "#A16207",
+              size: "xxs",
+            },
+          ],
+        },
+      ],
+    },
+    body: {
+      type: "box",
+      layout: "vertical",
+      backgroundColor: "#FFFDF5",
+      paddingAll: "20px",
+      contents: [
+        {
+          type: "text",
+          text: `สวัสดีครับคุณ ${data.displayName} 🌿 คืนนี้มีหัวข้อที่บันทึกไว้รออ่านดังนี้ครับ:`,
+          size: "xs",
+          color: "#766E65",
+          wrap: true,
+        },
+        {
+          type: "separator",
+          margin: "md",
+          color: "#FEF08A",
+        },
+        {
+          type: "box",
+          layout: "vertical",
+          margin: "md",
+          contents: itemsContents,
+        },
+      ],
+    },
+    footer: {
+      type: "box",
+      layout: "horizontal",
+      backgroundColor: "#FEF9C3",
+      paddingAll: "14px",
+      contents: [
+        {
+          type: "button",
+          style: "primary",
+          color: "#854D0E",
+          height: "sm",
+          action: {
+            type: "uri",
+            label: "📚 เปิดดู & ติ๊กรายการใน LIFF",
+            uri: liffUrl,
+          },
+        },
+      ],
+    },
+  };
+
+  return {
+    type: "flex",
+    altText: `📚 ได้เวลาอ่านหนังสือแล้ว! (มี ${totalPending} หัวข้อรออ่าน)`,
+    contents: bubble,
+  };
+}
+

@@ -25,6 +25,7 @@ enum NoteCategory {
   TODO
   GENERAL
   LINK
+  READING
 }
 
 enum DebtType {
