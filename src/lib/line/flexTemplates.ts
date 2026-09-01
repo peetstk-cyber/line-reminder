@@ -1296,10 +1296,10 @@ export function createReminderAlertCard(
     },
     footer: {
       type: "box",
-      layout: "horizontal",
+      layout: "vertical",
       backgroundColor: "#F8F9F5",
       paddingAll: "16px",
-      spacing: "md",
+      spacing: "sm",
       contents: [
         {
           type: "button",
@@ -1308,11 +1308,43 @@ export function createReminderAlertCard(
           color: "#3B5B3E",
           action: {
             type: "postback",
-            label: "✓ เสร็จแล้ว",
+            label: "✅ ทำแล้ว",
             data: `action=complete&id=${reminder.id}`,
             displayText: `ทำ "${reminder.taskTitle}" เสร็จแล้ว`,
           },
-          flex: 1,
+        },
+        {
+          type: "box",
+          layout: "horizontal",
+          spacing: "sm",
+          contents: [
+            {
+              type: "button",
+              style: "secondary",
+              height: "sm",
+              color: "#EFEBE4",
+              action: {
+                type: "postback",
+                label: "⏱️ ขออีก 10 นาที",
+                data: `action=snooze&id=${reminder.id}&minutes=10`,
+                displayText: `ขอเลื่อน "${reminder.taskTitle}" ออกไป 10 นาที`,
+              },
+              flex: 1,
+            },
+            {
+              type: "button",
+              style: "secondary",
+              height: "sm",
+              color: "#EFEBE4",
+              action: {
+                type: "postback",
+                label: "⏰ เลื่อน 1 ชม.",
+                data: `action=snooze&id=${reminder.id}&minutes=60`,
+                displayText: `ขอเลื่อน "${reminder.taskTitle}" ออกไป 1 ชั่วโมง`,
+              },
+              flex: 1,
+            },
+          ],
         },
         {
           type: "button",
@@ -1321,11 +1353,10 @@ export function createReminderAlertCard(
           color: "#EFEBE4",
           action: {
             type: "postback",
-            label: "⏱️ เลื่อน 10 นาที",
-            data: `action=snooze&id=${reminder.id}&minutes=10`,
-            displayText: `ขอเลื่อน "${reminder.taskTitle}" ออกไป 10 นาที`,
+            label: "🌙 เลื่อนไปค่ำนี้ (20:00 น.)",
+            data: `action=snooze_tonight&id=${reminder.id}`,
+            displayText: `ขอเลื่อน "${reminder.taskTitle}" ไปเตือนตอนค่ำ 20:00 น.`,
           },
-          flex: 1,
         },
       ],
     },

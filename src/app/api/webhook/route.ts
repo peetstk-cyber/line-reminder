@@ -706,7 +706,7 @@ async function handlePostback(lineClient: ReturnType<typeof getLineMessagingClie
         messages: [
           {
             type: "text",
-            text: `🎉 เยี่ยมมากครับ! บันทึกว่าทำ "${reminder?.taskTitle || ""}" เสร็จเรียบร้อยแล้ว`,
+            text: `🎉 เยี่ยมมากครับ! บันทึกว่าทำ "${reminder?.taskTitle || ""}" เสร็จเรียบร้อยแล้ว 🌿`,
           },
         ],
       });
@@ -721,9 +721,49 @@ async function handlePostback(lineClient: ReturnType<typeof getLineMessagingClie
       const newRemindAt = new Date(Date.now() + minutes * 60 * 1000);
       const TIMEZONE = "Asia/Bangkok";
       const displayTime = formatInTimeZone(newRemindAt, TIMEZONE, "HH:mm น.");
+      const displayDate = formatInTimeZone(newRemindAt, TIMEZONE, "dd MMM yyyy");
 
       const reminder = await db.updateReminder(reminderId, {
         remindAt: newRemindAt,
+        displayDate,
+        displayTime,
+        status: "PENDING",
+      });
+
+      const timeLabel = minutes >= 60 ? `${Math.floor(minutes / 60)} ชั่วโมง` : `${minutes} นาที`;
+
+      await lineClient.replyMessage({
+        replyToken,
+        messages: [
+          {
+            type: "text",
+            text: `⏱️ เลื่อนการแจ้งเตือน "${reminder?.taskTitle || ""}" ออกไปอีก ${timeLabel} (เตือนอีกครั้งเวลา ${displayTime}) เรียบร้อยครับ 🌿`,
+          },
+        ],
+      });
+    } catch (err) {
+      console.error("Error snoozing reminder via postback:", err);
+    }
+  }
+
+  if (action === "snooze_tonight" && reminderId) {
+    try {
+      const TIMEZONE = "Asia/Bangkok";
+      const now = new Date();
+      const bkkDateStr = formatInTimeZone(now, TIMEZONE, "yyyy-MM-dd");
+      let targetTonight = new Date(`${bkkDateStr}T20:00:00+07:00`);
+
+      // If current time is already past 20:00, set to tomorrow 20:00
+      if (now.getTime() >= targetTonight.getTime()) {
+        targetTonight = new Date(targetTonight.getTime() + 24 * 60 * 60 * 1000);
+      }
+
+      const displayDate = formatInTimeZone(targetTonight, TIMEZONE, "dd MMM yyyy");
+      const displayTime = "20:00 น.";
+
+      const reminder = await db.updateReminder(reminderId, {
+        remindAt: targetTonight,
+        displayDate,
         displayTime,
         status: "PENDING",
       });
@@ -733,12 +773,12 @@ async function handlePostback(lineClient: ReturnType<typeof getLineMessagingClie
         messages: [
           {
             type: "text",
-            text: `⏱️ เลื่อนการแจ้งเตือน "${reminder?.taskTitle || ""}" ออกไปอีก ${minutes} นาที (เป็นเวลา ${displayTime}) เรียบร้อยครับ`,
+            text: `🌙 เลื่อนการแจ้งเตือน "${reminder?.taskTitle || ""}" ไปเตือนตอนค่ำนี้เวลา 20:00 น. เรียบร้อยครับ 🌿`,
           },
         ],
       });
     } catch (err) {
-      console.error("Error snoozing reminder via postback:", err);
+      console.error("Error snoozing tonight via postback:", err);
     }
   }
 
