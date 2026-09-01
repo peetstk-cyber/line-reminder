@@ -1450,192 +1450,136 @@ export default function LiffDashboard() {
         {/* ========================================================================= */}
         {activeMainTab === "calendar" && (
           <div className="space-y-4 animate-in fade-in duration-200">
-            {/* Multi-Date Shift Mode Top Banner / Control Panel */}
+            {/* Ultra-Compact Shift Mode Top Bar (-75% height) */}
             {isShiftModeActive && (
-              <div className="bg-gradient-to-br from-amber-500/10 via-orange-500/10 to-amber-500/5 rounded-3xl p-4 sm:p-5 border-2 border-amber-400/80 shadow-md animate-in slide-in-from-top-3 duration-200">
-                <div className="flex items-center justify-between pb-3 border-b border-amber-200/80 mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">🩺</span>
-                    <div>
-                      <h3 className="text-sm sm:text-base font-black text-mocha">
-                        โหมดลงตารางเวร (เลือกหลายวัน)
-                      </h3>
-                      <p className="text-[11px] text-mocha-muted">
-                        เลือกประเภทเวร แล้วแตะวันที่ในปฏิทินที่ต้องการลงเวรนี้
-                      </p>
-                    </div>
-                  </div>
+              <div className="bg-white rounded-2xl p-2.5 sm:p-3 border border-amber-300 shadow-xs animate-in slide-in-from-top-2 duration-150 space-y-2">
+                {/* Row 1: Compact Shift Pill Chips */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
+                  {SHIFT_PRESETS.map((preset) => {
+                    const isSelected = selectedShiftType === preset.type;
+                    return (
+                      <button
+                        key={preset.type}
+                        type="button"
+                        onClick={() => setSelectedShiftType(preset.type)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all shrink-0 ${
+                          isSelected
+                            ? "text-white shadow-xs scale-105"
+                            : "bg-sand-light hover:bg-sand text-mocha border border-sand"
+                        }`}
+                        style={
+                          isSelected
+                            ? { backgroundColor: preset.color }
+                            : undefined
+                        }
+                      >
+                        <span>{preset.icon}</span>
+                        <span>{preset.title}</span>
+                      </button>
+                    );
+                  })}
+
+                  {/* Custom Shift Button */}
                   <button
-                    onClick={() => {
-                      setIsShiftModeActive(false);
-                      setMultiSelectedDates([]);
-                    }}
-                    className="p-1.5 text-mocha-muted hover:text-mocha hover:bg-white/80 rounded-xl transition-colors"
-                    title="ปิดโหมดลงเวร"
+                    type="button"
+                    onClick={() => setSelectedShiftType("CUSTOM")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all shrink-0 ${
+                      selectedShiftType === "CUSTOM"
+                        ? "bg-mocha text-white shadow-xs scale-105"
+                        : "bg-sand-light hover:bg-sand text-mocha border border-sand"
+                    }`}
                   >
-                    <X className="w-5 h-5" />
+                    <span>🏷️</span>
+                    <span>กำหนดเอง</span>
+                  </button>
+
+                  {/* Delete Shift Button */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedShiftType("DELETE")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all shrink-0 ${
+                      selectedShiftType === "DELETE"
+                        ? "bg-rose-600 text-white shadow-xs scale-105"
+                        : "bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200"
+                    }`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>ลบเวร</span>
                   </button>
                 </div>
 
-                {/* Shift Type Selector Chips */}
-                <div className="space-y-2">
-                  <span className="text-[11px] font-bold text-mocha-muted uppercase tracking-wider">
-                    เลือกประเภทเวรที่จะลง:
-                  </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1.5">
-                    {SHIFT_PRESETS.map((preset) => {
-                      const isSelected = selectedShiftType === preset.type;
-                      return (
-                        <button
-                          key={preset.type}
-                          type="button"
-                          onClick={() => setSelectedShiftType(preset.type)}
-                          className={`p-2 rounded-2xl border transition-all text-left flex flex-col justify-between ${
-                            isSelected
-                              ? "bg-white shadow-sm ring-2 scale-[1.02]"
-                              : "bg-white/60 hover:bg-white border-sand/80 opacity-80 hover:opacity-100"
-                          }`}
-                          style={{
-                            borderColor: isSelected ? preset.color : undefined,
-                            boxShadow: isSelected ? `0 2px 8px ${preset.color}25` : undefined,
-                          }}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-base">{preset.icon}</span>
-                            {isSelected && (
-                              <span
-                                className="w-2 h-2 rounded-full"
-                                style={{ backgroundColor: preset.color }}
-                              />
-                            )}
-                          </div>
-                          <div>
-                            <div className="font-extrabold text-xs text-mocha leading-tight">
-                              {preset.title}
-                            </div>
-                            <div className="text-[10px] text-mocha-muted leading-tight">
-                              {preset.subtitle}
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
-
-                    {/* Custom Shift Button */}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedShiftType("CUSTOM")}
-                      className={`p-2 rounded-2xl border transition-all text-left flex flex-col justify-between ${
-                        selectedShiftType === "CUSTOM"
-                          ? "bg-white shadow-sm ring-2 ring-mocha border-mocha scale-[1.02]"
-                          : "bg-white/60 hover:bg-white border-sand/80 opacity-80 hover:opacity-100"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-base">🏷️</span>
-                        {selectedShiftType === "CUSTOM" && (
-                          <span className="w-2 h-2 rounded-full bg-mocha" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="font-extrabold text-xs text-mocha leading-tight">
-                          กำหนดเอง
-                        </div>
-                        <div className="text-[10px] text-mocha-muted leading-tight">
-                          เช่น ER, OR
-                        </div>
-                      </div>
-                    </button>
-
-                    {/* Delete Shift Button */}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedShiftType("DELETE")}
-                      className={`p-2 rounded-2xl border transition-all text-left flex flex-col justify-between ${
-                        selectedShiftType === "DELETE"
-                          ? "bg-rose-50 shadow-sm ring-2 ring-rose-500 border-rose-500 scale-[1.02]"
-                          : "bg-white/60 hover:bg-white border-sand/80 opacity-80 hover:opacity-100"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-base">🗑️</span>
-                        {selectedShiftType === "DELETE" && (
-                          <span className="w-2 h-2 rounded-full bg-rose-500" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="font-extrabold text-xs text-rose-700 leading-tight">
-                          ลบเวร
-                        </div>
-                        <div className="text-[10px] text-rose-600/80 leading-tight">
-                          ล้างเวรออก
-                        </div>
-                      </div>
-                    </button>
+                {/* Custom input only if CUSTOM is active */}
+                {selectedShiftType === "CUSTOM" && (
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <input
+                      type="text"
+                      value={customShiftTitle}
+                      onChange={(e) => setCustomShiftTitle(e.target.value)}
+                      placeholder="ชื่อเวร เช่น ER, OR"
+                      className="flex-1 px-2.5 py-1 bg-sand-light rounded-lg border border-sand text-xs font-bold text-mocha focus:outline-none focus:ring-1 focus:ring-matcha"
+                    />
+                    <input
+                      type="color"
+                      value={customShiftColor}
+                      onChange={(e) => setCustomShiftColor(e.target.value)}
+                      className="w-7 h-7 rounded-lg border border-sand cursor-pointer p-0 bg-white"
+                      title="เลือกสี"
+                    />
                   </div>
+                )}
 
-                  {/* Custom Title Input if CUSTOM selected */}
-                  {selectedShiftType === "CUSTOM" && (
-                    <div className="pt-2 flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={customShiftTitle}
-                        onChange={(e) => setCustomShiftTitle(e.target.value)}
-                        placeholder="พิมพ์ชื่อเวร เช่น ER, OR, สลับเวร"
-                        className="flex-1 px-3 py-2 bg-white rounded-xl border border-sand text-xs font-bold text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
-                      />
-                      <input
-                        type="color"
-                        value={customShiftColor}
-                        onChange={(e) => setCustomShiftColor(e.target.value)}
-                        className="w-9 h-9 rounded-xl border border-sand cursor-pointer p-0.5 bg-white"
-                        title="เลือกสี Badge"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Bottom Action Bar */}
-                <div className="mt-4 pt-3 border-t border-amber-200/80 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-mocha">
-                    <span className="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center text-[11px]">
-                      {multiSelectedDates.length}
-                    </span>
-                    <span>วันที่เลือกไว้</span>
-                  </div>
-
+                {/* Row 2: Action & Status Bar */}
+                <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-sand/60 text-xs">
                   <div className="flex items-center gap-2">
+                    <span className="font-bold text-mocha text-[11px]">
+                      เลือก {multiSelectedDates.length} วัน
+                    </span>
                     {multiSelectedDates.length > 0 && (
                       <button
                         type="button"
                         onClick={() => setMultiSelectedDates([])}
-                        className="px-2.5 py-1.5 text-xs font-bold text-mocha-muted hover:text-rose-600 transition-colors"
+                        className="text-[11px] font-semibold text-mocha-muted hover:text-rose-600 underline transition-colors"
                       >
-                        ล้างที่เลือก
+                        ล้าง
                       </button>
                     )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
                       disabled={multiSelectedDates.length === 0 || isSavingShifts}
                       onClick={handleSaveMultiShifts}
-                      className={`px-4 py-2 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                      className={`px-3 py-1 text-xs font-bold text-white rounded-xl flex items-center gap-1 shadow-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                         selectedShiftType === "DELETE"
                           ? "bg-rose-600 hover:bg-rose-700"
                           : "bg-matcha-dark hover:bg-matcha"
                       }`}
                     >
                       {isSavingShifts ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       ) : selectedShiftType === "DELETE" ? (
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       ) : (
-                        <Check className="w-4 h-4" />
+                        <Check className="w-3.5 h-3.5" />
                       )}
                       <span>
                         {selectedShiftType === "DELETE"
-                          ? `ลบเวร (${multiSelectedDates.length} วัน)`
-                          : `บันทึกเวร (${multiSelectedDates.length} วัน)`}
+                          ? `ลบ (${multiSelectedDates.length})`
+                          : `บันทึก (${multiSelectedDates.length})`}
                       </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsShiftModeActive(false);
+                        setMultiSelectedDates([]);
+                      }}
+                      className="p-1 text-mocha-muted hover:text-mocha hover:bg-sand rounded-lg transition-colors"
+                      title="ปิดโหมดเวร"
+                    >
+                      <X className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
