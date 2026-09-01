@@ -35,9 +35,71 @@ import {
   Copy,
   Globe,
   Link as LinkIcon,
+  Sun,
+  Sunset,
+  Moon,
+  Palmtree,
+  Tag,
+  CalendarCheck,
+  CalendarPlus,
 } from "lucide-react";
 import { PRESET_AVATARS, getAvatarInfo, PresetAvatar } from "@/lib/avatar";
 import { formatInTimeZone } from "date-fns-tz";
+
+export interface ShiftItem {
+  id: string;
+  userId: string;
+  date: string; // "YYYY-MM-DD"
+  shiftType: string; // "MORNING" | "AFTERNOON" | "NIGHT" | "OFF" | "CUSTOM"
+  title: string;
+  color: string;
+  note: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export const SHIFT_PRESETS = [
+  {
+    type: "MORNING",
+    title: "เช้า",
+    subtitle: "08:00 - 16:00",
+    icon: "🌅",
+    color: "#EA580C",
+    bgLight: "#FFF7ED",
+    border: "#FDBA74",
+    text: "#C2410C",
+  },
+  {
+    type: "AFTERNOON",
+    title: "บ่าย",
+    subtitle: "16:00 - 24:00",
+    icon: "🌇",
+    color: "#7C3AED",
+    bgLight: "#F5F3FF",
+    border: "#C4B5FD",
+    text: "#6D28D9",
+  },
+  {
+    type: "NIGHT",
+    title: "ดึก",
+    subtitle: "24:00 - 08:00",
+    icon: "🌙",
+    color: "#2563EB",
+    bgLight: "#EFF6FF",
+    border: "#93C5FD",
+    text: "#1D4ED8",
+  },
+  {
+    type: "OFF",
+    title: "OFF",
+    subtitle: "วันหยุด",
+    icon: "🏖️",
+    color: "#059669",
+    bgLight: "#ECFDF5",
+    border: "#6EE7B7",
+    text: "#047857",
+  },
+];
 
 interface ReminderItem {
   id: string;
@@ -181,6 +243,16 @@ export default function LiffDashboard() {
   const [customPhotoUrl, setCustomPhotoUrl] = useState<string>("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
+  // Shift Management State
+  const [shifts, setShifts] = useState<ShiftItem[]>([]);
+  const [isShiftModeActive, setIsShiftModeActive] = useState(false);
+  const [selectedShiftType, setSelectedShiftType] = useState<string>("MORNING");
+  const [customShiftTitle, setCustomShiftTitle] = useState<string>("");
+  const [customShiftColor, setCustomShiftColor] = useState<string>("#F97316");
+  const [multiSelectedDates, setMultiSelectedDates] = useState<string[]>([]);
+  const [isSavingShifts, setIsSavingShifts] = useState(false);
+  const [editingDayShiftDate, setEditingDayShiftDate] = useState<string | null>(null);
+
   // Instant Cache Hydration on mount (0ms UI render)
   useEffect(() => {
     try {
@@ -191,6 +263,7 @@ export default function LiffDashboard() {
       const cachedStats = localStorage.getItem("line_cached_stats");
       const cachedNotes = localStorage.getItem("line_cached_notes");
       const cachedDebts = localStorage.getItem("line_cached_debts");
+      const cachedShifts = localStorage.getItem("line_cached_shifts");
 
       if (cachedUid) setLineUserId(cachedUid);
       if (cachedName) setDisplayName(cachedName);
@@ -205,6 +278,7 @@ export default function LiffDashboard() {
       if (cachedStats) setStats(JSON.parse(cachedStats));
       if (cachedNotes) setNotes(JSON.parse(cachedNotes));
       if (cachedDebts) setDebtSummary(JSON.parse(cachedDebts));
+      if (cachedShifts) setShifts(JSON.parse(cachedShifts));
     } catch (e) {
       console.error("Failed to load local cache:", e);
     }
@@ -344,19 +418,165 @@ export default function LiffDashboard() {
     }
   }, [lineUserId]);
 
+  // Fetch Shifts
+  const fetchShifts = useCallback(async () => {
+    if (!lineUserId) return;
+    try {
+      const res = await fetch(`/api/shifts?lineUserId=${lineUserId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setShifts(data.shifts || []);
+        try {
+          localStorage.setItem("line_cached_shifts", JSON.stringify(data.shifts || []));
+        } catch (e) {}
+      }
+    } catch (err) {
+      console.error("Error fetching shifts:", err);
+    }
+  }, [lineUserId]);
+
   useEffect(() => {
     if (isLiffReady && lineUserId) {
       if (activeMainTab === "reminders") {
         fetchReminders(activeReminderFilter);
       } else if (activeMainTab === "calendar") {
         fetchReminders("all");
+        fetchShifts();
       } else if (activeMainTab === "notes") {
         fetchNotes(activeNoteCategory);
       } else if (activeMainTab === "debt") {
         fetchDebts();
       }
     }
-  }, [isLiffReady, lineUserId, activeMainTab, activeReminderFilter, activeNoteCategory, fetchReminders, fetchNotes, fetchDebts]);
+  }, [isLiffReady, lineUserId, activeMainTab, activeReminderFilter, activeNoteCategory, fetchReminders, fetchNotes, fetchDebts, fetchShifts]);
+
+  // Toggle multi-select date in Shift Mode
+  function handleToggleDateInShiftMode(dateKey: string) {
+    setMultiSelectedDates((prev) =>
+      prev.includes(dateKey) ? prev.filter((d) => d !== dateKey) : [...prev, dateKey]
+    );
+  }
+
+  // Batch Save Multi-Selected Shifts
+  async function handleSaveMultiShifts() {
+    if (multiSelectedDates.length === 0 || !lineUserId || isSavingShifts) return;
+
+    try {
+      setIsSavingShifts(true);
+      const preset = SHIFT_PRESETS.find((p) => p.type === selectedShiftType);
+      const title =
+        selectedShiftType === "CUSTOM"
+          ? customShiftTitle.trim() || "เวร"
+          : preset?.title || "เวร";
+      const color =
+        selectedShiftType === "CUSTOM" ? customShiftColor : preset?.color || "#F97316";
+
+      const shiftsPayload = multiSelectedDates.map((date) => ({
+        date,
+        shiftType: selectedShiftType,
+        title,
+        color,
+      }));
+
+      // Optimistic update
+      setShifts((prev) => {
+        const dateSet = new Set(multiSelectedDates);
+        const filtered = prev.filter((s) => !dateSet.has(s.date));
+        const newItems: ShiftItem[] = shiftsPayload.map((sp) => ({
+          id: `temp-${sp.date}`,
+          userId: lineUserId,
+          date: sp.date,
+          shiftType: sp.shiftType,
+          title: sp.title,
+          color: sp.color,
+          note: null,
+        }));
+        const next = [...filtered, ...newItems];
+        try {
+          localStorage.setItem("line_cached_shifts", JSON.stringify(next));
+        } catch (e) {}
+        return next;
+      });
+
+      const res = await fetch("/api/shifts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lineUserId,
+          shifts: shiftsPayload,
+        }),
+      });
+
+      if (res.ok) {
+        setIsShiftModeActive(false);
+        setMultiSelectedDates([]);
+        fetchShifts();
+      }
+    } catch (err) {
+      console.error("Failed to save shifts:", err);
+    } finally {
+      setIsSavingShifts(false);
+    }
+  }
+
+  // Set Single Day Shift
+  async function handleSetSingleDayShift(dateKey: string, shiftType: string, title: string, color: string) {
+    if (!lineUserId) return;
+    try {
+      // Optimistic update
+      setShifts((prev) => {
+        const filtered = prev.filter((s) => s.date !== dateKey);
+        const newItem: ShiftItem = {
+          id: `temp-${dateKey}`,
+          userId: lineUserId,
+          date: dateKey,
+          shiftType,
+          title,
+          color,
+          note: null,
+        };
+        const next = [...filtered, newItem];
+        try {
+          localStorage.setItem("line_cached_shifts", JSON.stringify(next));
+        } catch (e) {}
+        return next;
+      });
+
+      await fetch("/api/shifts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lineUserId,
+          shifts: [{ date: dateKey, shiftType, title, color }],
+        }),
+      });
+      fetchShifts();
+    } catch (err) {
+      console.error("Failed to set shift:", err);
+    }
+  }
+
+  // Delete Single Shift
+  async function handleDeleteSingleShift(dateKey: string) {
+    if (!lineUserId) return;
+    try {
+      // Optimistic removal
+      setShifts((prev) => {
+        const next = prev.filter((s) => s.date !== dateKey);
+        try {
+          localStorage.setItem("line_cached_shifts", JSON.stringify(next));
+        } catch (e) {}
+        return next;
+      });
+
+      await fetch(`/api/shifts?lineUserId=${lineUserId}&date=${dateKey}`, {
+        method: "DELETE",
+      });
+      fetchShifts();
+    } catch (err) {
+      console.error("Failed to delete shift:", err);
+    }
+  }
 
   // Handle Create Manual Reminder
   async function handleCreateManualReminder(e: React.FormEvent) {
@@ -1200,39 +1420,217 @@ export default function LiffDashboard() {
         {/* ========================================================================= */}
         {activeMainTab === "calendar" && (
           <div className="space-y-4 animate-in fade-in duration-200">
+            {/* Multi-Date Shift Mode Top Banner / Control Panel */}
+            {isShiftModeActive && (
+              <div className="bg-gradient-to-br from-amber-500/10 via-orange-500/10 to-amber-500/5 rounded-3xl p-4 sm:p-5 border-2 border-amber-400/80 shadow-md animate-in slide-in-from-top-3 duration-200">
+                <div className="flex items-center justify-between pb-3 border-b border-amber-200/80 mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🩺</span>
+                    <div>
+                      <h3 className="text-sm sm:text-base font-black text-mocha">
+                        โหมดลงตารางเวร (เลือกหลายวัน)
+                      </h3>
+                      <p className="text-[11px] text-mocha-muted">
+                        เลือกประเภทเวร แล้วแตะวันที่ในปฏิทินที่ต้องการลงเวรนี้
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setIsShiftModeActive(false);
+                      setMultiSelectedDates([]);
+                    }}
+                    className="p-1.5 text-mocha-muted hover:text-mocha hover:bg-white/80 rounded-xl transition-colors"
+                    title="ปิดโหมดลงเวร"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Shift Type Selector Chips */}
+                <div className="space-y-2">
+                  <span className="text-[11px] font-bold text-mocha-muted uppercase tracking-wider">
+                    เลือกประเภทเวรที่จะลง:
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                    {SHIFT_PRESETS.map((preset) => {
+                      const isSelected = selectedShiftType === preset.type;
+                      return (
+                        <button
+                          key={preset.type}
+                          type="button"
+                          onClick={() => setSelectedShiftType(preset.type)}
+                          className={`p-2 rounded-2xl border transition-all text-left flex flex-col justify-between ${
+                            isSelected
+                              ? "bg-white shadow-sm ring-2 scale-[1.02]"
+                              : "bg-white/60 hover:bg-white border-sand/80 opacity-80 hover:opacity-100"
+                          }`}
+                          style={{
+                            borderColor: isSelected ? preset.color : undefined,
+                            boxShadow: isSelected ? `0 2px 8px ${preset.color}25` : undefined,
+                          }}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-base">{preset.icon}</span>
+                            {isSelected && (
+                              <span
+                                className="w-2 h-2 rounded-full"
+                                style={{ backgroundColor: preset.color }}
+                              />
+                            )}
+                          </div>
+                          <div>
+                            <div className="font-extrabold text-xs text-mocha leading-tight">
+                              {preset.title}
+                            </div>
+                            <div className="text-[10px] text-mocha-muted leading-tight">
+                              {preset.subtitle}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+
+                    {/* Custom Shift Button */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedShiftType("CUSTOM")}
+                      className={`p-2 rounded-2xl border transition-all text-left flex flex-col justify-between ${
+                        selectedShiftType === "CUSTOM"
+                          ? "bg-white shadow-sm ring-2 ring-mocha border-mocha scale-[1.02]"
+                          : "bg-white/60 hover:bg-white border-sand/80 opacity-80 hover:opacity-100"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-base">🏷️</span>
+                        {selectedShiftType === "CUSTOM" && (
+                          <span className="w-2 h-2 rounded-full bg-mocha" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="font-extrabold text-xs text-mocha leading-tight">
+                          กำหนดเอง
+                        </div>
+                        <div className="text-[10px] text-mocha-muted leading-tight">
+                          เช่น ER, OR, Ward
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Custom Title Input if CUSTOM selected */}
+                  {selectedShiftType === "CUSTOM" && (
+                    <div className="pt-2 flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={customShiftTitle}
+                        onChange={(e) => setCustomShiftTitle(e.target.value)}
+                        placeholder="พิมพ์ชื่อเวร เช่น ER, OR, สลับเวร"
+                        className="flex-1 px-3 py-2 bg-white rounded-xl border border-sand text-xs font-bold text-mocha focus:outline-none focus:ring-2 focus:ring-matcha"
+                      />
+                      <input
+                        type="color"
+                        value={customShiftColor}
+                        onChange={(e) => setCustomShiftColor(e.target.value)}
+                        className="w-9 h-9 rounded-xl border border-sand cursor-pointer p-0.5 bg-white"
+                        title="เลือกสี Badge"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Bottom Action Bar */}
+                <div className="mt-4 pt-3 border-t border-amber-200/80 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-mocha">
+                    <span className="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center text-[11px]">
+                      {multiSelectedDates.length}
+                    </span>
+                    <span>วันที่เลือกไว้</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {multiSelectedDates.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setMultiSelectedDates([])}
+                        className="px-2.5 py-1.5 text-xs font-bold text-mocha-muted hover:text-rose-600 transition-colors"
+                      >
+                        ล้างที่เลือก
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={multiSelectedDates.length === 0 || isSavingShifts}
+                      onClick={handleSaveMultiShifts}
+                      className="px-4 py-2 bg-matcha-dark hover:bg-matcha text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSavingShifts ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Check className="w-4 h-4" />
+                      )}
+                      <span>บันทึกเวร ({multiSelectedDates.length} วัน)</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Month Navigator Header */}
             <div className="bg-white rounded-3xl p-4 sm:p-5 border border-sand shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <span className="text-[11px] font-bold text-matcha-dark uppercase tracking-wider">ปฏิทินเตือนความจำ</span>
+                  <span className="text-[11px] font-bold text-matcha-dark uppercase tracking-wider">
+                    ปฏิทิน & ตารางเวร
+                  </span>
                   <h2 className="text-lg sm:text-xl font-black text-mocha flex items-center gap-2 mt-0.5">
                     <Calendar className="w-5 h-5 text-matcha-dark" />
-                    <span>{monthNamesThai[month]} {year + 543}</span>
+                    <span>
+                      {monthNamesThai[month]} {year + 543}
+                    </span>
                   </h2>
                 </div>
 
-                <div className="flex items-center gap-1 bg-sand-light p-1 rounded-2xl border border-sand">
-                  <button
-                    onClick={handlePrevMonth}
-                    className="w-8 h-8 rounded-xl bg-white hover:bg-sand text-mocha flex items-center justify-center shadow-xs transition-colors"
-                    title="เดือนก่อนหน้า"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={handleTodayMonth}
-                    className="px-2.5 py-1 text-xs font-bold text-matcha-dark hover:bg-white rounded-xl transition-colors"
-                    title="ไปที่วันนี้"
-                  >
-                    วันนี้
-                  </button>
-                  <button
-                    onClick={handleNextMonth}
-                    className="w-8 h-8 rounded-xl bg-white hover:bg-sand text-mocha flex items-center justify-center shadow-xs transition-colors"
-                    title="เดือนถัดไป"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                <div className="flex items-center gap-1.5">
+                  {/* Toggle Shift Mode Button */}
+                  {!isShiftModeActive && (
+                    <button
+                      onClick={() => {
+                        setIsShiftModeActive(true);
+                        if (selectedCalendarDate) {
+                          setMultiSelectedDates([selectedCalendarDate]);
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 border border-amber-400/40 text-xs font-extrabold rounded-xl flex items-center gap-1.5 transition-all shadow-xs"
+                    >
+                      <span>🩺</span>
+                      <span>ลงตารางเวร</span>
+                    </button>
+                  )}
+
+                  <div className="flex items-center gap-1 bg-sand-light p-1 rounded-2xl border border-sand">
+                    <button
+                      onClick={handlePrevMonth}
+                      className="w-8 h-8 rounded-xl bg-white hover:bg-sand text-mocha flex items-center justify-center shadow-xs transition-colors"
+                      title="เดือนก่อนหน้า"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={handleTodayMonth}
+                      className="px-2.5 py-1 text-xs font-bold text-matcha-dark hover:bg-white rounded-xl transition-colors"
+                      title="ไปที่วันนี้"
+                    >
+                      วันนี้
+                    </button>
+                    <button
+                      onClick={handleNextMonth}
+                      className="w-8 h-8 rounded-xl bg-white hover:bg-sand text-mocha flex items-center justify-center shadow-xs transition-colors"
+                      title="เดือนถัดไป"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1255,13 +1653,25 @@ export default function LiffDashboard() {
                 {calendarDays.map((cell, idx) => {
                   const isSun = idx % 7 === 0;
                   const isSat = idx % 7 === 6;
+                  const dayShift = shifts.find((s) => s.date === cell.dateKey);
+                  const isMultiSelected =
+                    isShiftModeActive && multiSelectedDates.includes(cell.dateKey);
 
                   return (
                     <button
                       key={`${cell.dateKey}-${idx}`}
-                      onClick={() => setSelectedCalendarDate(cell.dateKey)}
-                      className={`min-h-[50px] sm:min-h-[56px] p-1 rounded-2xl flex flex-col items-center justify-between transition-all relative ${
-                        cell.isSelected
+                      type="button"
+                      onClick={() => {
+                        if (isShiftModeActive) {
+                          handleToggleDateInShiftMode(cell.dateKey);
+                        } else {
+                          setSelectedCalendarDate(cell.dateKey);
+                        }
+                      }}
+                      className={`min-h-[58px] sm:min-h-[64px] p-1 rounded-2xl flex flex-col items-center justify-between transition-all relative ${
+                        isMultiSelected
+                          ? "bg-amber-100/90 text-amber-950 font-bold border-2 border-amber-500 shadow-md scale-[1.03] z-10"
+                          : cell.isSelected && !isShiftModeActive
                           ? "bg-matcha-dark text-white font-bold shadow-md ring-2 ring-matcha-light scale-[1.02] z-10"
                           : cell.isToday
                           ? "bg-matcha-subtle/80 text-matcha-dark font-extrabold border border-matcha-light"
@@ -1270,9 +1680,12 @@ export default function LiffDashboard() {
                           : "bg-transparent text-mocha-muted/30 hover:bg-sand-light/30"
                       }`}
                     >
+                      {/* Day Number */}
                       <span
                         className={`text-xs ${
-                          cell.isSelected
+                          isMultiSelected
+                            ? "text-amber-950 font-black"
+                            : cell.isSelected && !isShiftModeActive
                             ? "text-white font-bold"
                             : cell.isToday
                             ? "text-matcha-dark font-black"
@@ -1288,20 +1701,57 @@ export default function LiffDashboard() {
                         {cell.day}
                       </span>
 
-                      {/* Event Dots */}
-                      <div className="flex items-center justify-center gap-1 min-h-[6px] mb-0.5">
+                      {/* Shift Badge (ตารางเวร) */}
+                      {dayShift ? (
+                        <div
+                          className={`w-full text-center truncate px-0.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black leading-tight tracking-tight shadow-2xs mt-0.5 ${
+                            cell.isSelected && !isShiftModeActive
+                              ? "bg-white/20 text-white border border-white/40"
+                              : ""
+                          }`}
+                          style={
+                            cell.isSelected && !isShiftModeActive
+                              ? undefined
+                              : {
+                                  backgroundColor: `${dayShift.color}20`,
+                                  color: dayShift.color,
+                                  border: `1px solid ${dayShift.color}45`,
+                                }
+                          }
+                          title={dayShift.title}
+                        >
+                          {dayShift.title}
+                        </div>
+                      ) : isMultiSelected ? (
+                        <div className="w-full text-center truncate px-0.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black leading-tight shadow-2xs mt-0.5 bg-amber-200 text-amber-900 border border-amber-400">
+                          {selectedShiftType === "CUSTOM"
+                            ? customShiftTitle.trim() || "เวร"
+                            : SHIFT_PRESETS.find((p) => p.type === selectedShiftType)?.title}
+                        </div>
+                      ) : (
+                        <div className="min-h-[14px]" />
+                      )}
+
+                      {/* Reminder Event Dots (จุดการแจ้งเตือน) */}
+                      <div className="flex items-center justify-center gap-1 min-h-[5px] mb-0.5">
                         {cell.pendingCount > 0 && (
                           <span
                             className={`w-1.5 h-1.5 rounded-full ${
-                              cell.isSelected ? "bg-white" : "bg-matcha-dark"
+                              cell.isSelected && !isShiftModeActive
+                                ? "bg-white"
+                                : "bg-matcha-dark"
                             }`}
+                            title="มีงานที่ต้องทำ"
                           />
                         )}
                         {cell.completedCount > 0 && (
                           <span
                             className={`w-1.5 h-1.5 rounded-full ${
-                              cell.isSelected ? "bg-white/60" : "bg-mocha-muted/40"
+                              cell.isSelected && !isShiftModeActive
+                                ? "bg-white/60"
+                                : "bg-mocha-muted/40"
                             }`}
+                            title="งานที่เสร็จแล้ว"
                           />
                         )}
                       </div>
@@ -1311,26 +1761,40 @@ export default function LiffDashboard() {
               </div>
 
               {/* Legend */}
-              <div className="mt-4 pt-3 border-t border-sand flex items-center justify-between text-[11px] text-mocha-muted px-1">
-                <div className="flex items-center gap-3">
+              <div className="mt-4 pt-3 border-t border-sand flex flex-wrap items-center justify-between gap-2 text-[11px] text-mocha-muted px-1">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-100 text-orange-700 border border-orange-200">
+                      🌅 เช้า
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-100 text-purple-700 border border-purple-200">
+                      🌇 บ่าย
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-700 border border-blue-200">
+                      🌙 ดึก
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                      🏖️ OFF
+                    </span>
+                  </div>
                   <div className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-matcha-dark" />
-                    <span>มีงานที่ต้องทำ</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-mocha-muted/40" />
-                    <span>เสร็จแล้ว</span>
+                    <span>มีแจ้งเตือน</span>
                   </div>
                 </div>
-                <span className="text-[10px] text-mocha-muted/70">แตะวันที่เพื่อดูงาน</span>
+                <span className="text-[10px] text-mocha-muted/70">
+                  {isShiftModeActive ? "กำลังอยู่ในโหมดลงเวร" : "แตะวันที่เพื่อดูรายละเอียด"}
+                </span>
               </div>
             </div>
 
             {/* Selected Day Inspector / Details */}
-            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-sand shadow-sm space-y-3">
+            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-sand shadow-sm space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-sand">
                 <div>
-                  <span className="text-[11px] font-semibold text-matcha-dark">รายการของวันที่</span>
+                  <span className="text-[11px] font-semibold text-matcha-dark">
+                    ข้อมูลประจำวันที่
+                  </span>
                   <h3 className="text-sm sm:text-base font-bold text-mocha">
                     {formatThaiSelectedDate(selectedCalendarDate)}
                   </h3>
@@ -1344,91 +1808,225 @@ export default function LiffDashboard() {
                   className="px-3 py-1.5 bg-matcha-subtle hover:bg-matcha-light text-matcha-dark font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-xs"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>เพิ่มงานวันนี้</span>
+                  <span>เพิ่มแจ้งเตือนวันนี้</span>
                 </button>
               </div>
 
-              {/* Reminders List for Selected Date */}
-              {selectedDayReminders.length === 0 ? (
-                <div className="py-8 text-center space-y-2">
-                  <div className="w-12 h-12 rounded-2xl bg-sand-light mx-auto flex items-center justify-center text-mocha-muted">
-                    <CalendarDays className="w-6 h-6 text-matcha-dark/60" />
-                  </div>
-                  <p className="text-sm font-semibold text-mocha">ไม่มีการแจ้งเตือนในวันนี้ 🎉</p>
-                  <p className="text-xs text-mocha-muted">กดปุ่ม &quot;เพิ่มงานวันนี้&quot; เพื่อกำหนดเวลาแจ้งเตือน</p>
-                </div>
-              ) : (
-                <div className="space-y-2 pt-1">
-                  {selectedDayReminders.map((reminder) => {
-                    const isCompleted = reminder.status === "COMPLETED";
-                    return (
-                      <div
-                        key={reminder.id}
-                        className={`p-3 rounded-2xl border transition-all flex items-start justify-between gap-3 ${
-                          isCompleted
-                            ? "bg-sand-light/50 border-sand opacity-70"
-                            : "bg-white border-sand hover:border-matcha-light shadow-xs"
-                        }`}
-                      >
-                        <div className="flex items-start gap-2.5 flex-1 min-w-0">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleReminder(reminder.id, reminder.status)}
-                            className="mt-0.5 text-mocha-muted hover:text-matcha-dark transition-colors"
-                          >
-                            {isCompleted ? (
-                              <CheckCircle2 className="w-5 h-5 text-matcha-dark" />
-                            ) : (
-                              <Circle className="w-5 h-5" />
-                            )}
-                          </button>
-                          <div className="flex-1 min-w-0">
-                            <p
-                              className={`text-sm font-medium leading-snug break-words ${
-                                isCompleted ? "line-through text-mocha-muted" : "text-mocha font-semibold"
-                              }`}
+              {/* ------------------------------------------------------------- */}
+              {/* SUBSECTION 1: ตารางเวรของวันที่เลือก (Daily Shift Box) */}
+              {/* ------------------------------------------------------------- */}
+              {(() => {
+                const currentShift = shifts.find((s) => s.date === selectedCalendarDate);
+                const currentPreset = SHIFT_PRESETS.find(
+                  (p) => p.type === currentShift?.shiftType
+                );
+
+                if (currentShift) {
+                  return (
+                    <div
+                      className="p-3.5 sm:p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      style={{
+                        backgroundColor: `${currentShift.color}10`,
+                        borderColor: `${currentShift.color}40`,
+                      }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl sm:text-3xl">
+                          {currentPreset?.icon || "🩺"}
+                        </span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] uppercase font-bold tracking-wider text-mocha-muted">
+                              ตารางเวรประจำวัน
+                            </span>
+                            <span
+                              className="px-2 py-0.5 rounded-full text-[10px] font-black text-white"
+                              style={{ backgroundColor: currentShift.color }}
                             >
-                              {reminder.taskTitle}
-                            </p>
-                            <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-mocha-muted">
-                              <span className="flex items-center gap-1 font-semibold text-matcha-dark">
-                                <Clock className="w-3.5 h-3.5" />
-                                {reminder.displayTime || formatInTimeZone(new Date(reminder.remindAt), "Asia/Bangkok", "HH:mm")} น.
-                              </span>
-                              {reminder.recurrence !== "NONE" && (
-                                <span className="px-2 py-0.5 bg-sand rounded-full text-[10px] font-bold text-mocha">
-                                  {reminder.recurrence === "DAILY"
-                                    ? "ทุกวัน"
-                                    : reminder.recurrence === "WEEKLY"
-                                    ? "ทุกสัปดาห์"
-                                    : "ทุกเดือน"}
-                                </span>
-                              )}
-                            </div>
+                              {currentShift.title}
+                            </span>
+                          </div>
+                          <div className="text-sm sm:text-base font-black text-mocha mt-0.5">
+                            {currentPreset?.subtitle || currentShift.title}
                           </div>
                         </div>
+                      </div>
 
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => handleEditClick(reminder)}
-                            className="p-1.5 text-mocha-muted hover:text-matcha-dark hover:bg-sand-light rounded-lg transition-colors"
-                            title="แก้ไข"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteReminder(reminder.id)}
-                            className="p-1.5 text-mocha-muted hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                            title="ลบ"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                      {/* Quick Change / Delete Buttons */}
+                      <div className="flex items-center gap-1.5 self-end sm:self-center">
+                        <div className="flex items-center gap-1 bg-white/80 p-1 rounded-xl border border-sand">
+                          {SHIFT_PRESETS.map((p) => (
+                            <button
+                              key={p.type}
+                              type="button"
+                              onClick={() =>
+                                handleSetSingleDayShift(
+                                  selectedCalendarDate,
+                                  p.type,
+                                  p.title,
+                                  p.color
+                                )
+                              }
+                              className={`px-2 py-1 rounded-lg text-xs font-bold transition-all ${
+                                currentShift.shiftType === p.type
+                                  ? "bg-matcha-dark text-white shadow-xs"
+                                  : "text-mocha-muted hover:text-mocha hover:bg-sand-light"
+                              }`}
+                              title={`เปลี่ยนเป็นเวร ${p.title}`}
+                            >
+                              {p.title}
+                            </button>
+                          ))}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSingleShift(selectedCalendarDate)}
+                          className="p-2 text-mocha-muted hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                          title="ลบเวรของวันนี้"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="p-3 sm:p-3.5 rounded-2xl border-2 border-dashed border-sand bg-sand-light/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🩺</span>
+                      <div>
+                        <div className="text-xs font-bold text-mocha">
+                          ยังไม่ได้ลงเวรในวันนี้
+                        </div>
+                        <div className="text-[10px] text-mocha-muted">
+                          แตะเลือกเวรด้านขวาเพื่อลงเวรทันที
                         </div>
                       </div>
-                    );
-                  })}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {SHIFT_PRESETS.map((p) => (
+                        <button
+                          key={p.type}
+                          type="button"
+                          onClick={() =>
+                            handleSetSingleDayShift(
+                              selectedCalendarDate,
+                              p.type,
+                              p.title,
+                              p.color
+                            )
+                          }
+                          className="px-2.5 py-1 bg-white hover:bg-sand border border-sand rounded-xl text-xs font-bold text-mocha flex items-center gap-1 shadow-2xs transition-all hover:scale-105"
+                        >
+                          <span>{p.icon}</span>
+                          <span>{p.title}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ------------------------------------------------------------- */}
+              {/* SUBSECTION 2: การแจ้งเตือนและนัดหมาย (Reminders List) */}
+              {/* ------------------------------------------------------------- */}
+              <div className="pt-2">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="text-xs font-bold text-matcha-dark">⏰ นัดหมายและการแจ้งเตือน</span>
+                  <span className="text-[11px] text-mocha-muted">({selectedDayReminders.length} รายการ)</span>
                 </div>
-              )}
+
+                {selectedDayReminders.length === 0 ? (
+                  <div className="py-6 text-center space-y-1 bg-sand-light/20 rounded-2xl border border-sand/60">
+                    <p className="text-xs font-semibold text-mocha">ไม่มีการแจ้งเตือนในวันนี้ 🎉</p>
+                    <p className="text-[11px] text-mocha-muted">
+                      กดปุ่ม &quot;เพิ่มแจ้งเตือนวันนี้&quot; ด้านบนหากต้องการตั้งเตือน
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedDayReminders.map((reminder) => {
+                      const isCompleted = reminder.status === "COMPLETED";
+                      return (
+                        <div
+                          key={reminder.id}
+                          className={`p-3 rounded-2xl border transition-all flex items-start justify-between gap-3 ${
+                            isCompleted
+                              ? "bg-sand-light/50 border-sand opacity-70"
+                              : "bg-white border-sand hover:border-matcha-light shadow-xs"
+                          }`}
+                        >
+                          <div className="flex items-start gap-2.5 flex-1 min-w-0">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleReminder(reminder.id, reminder.status)}
+                              className="mt-0.5 text-mocha-muted hover:text-matcha-dark transition-colors"
+                            >
+                              {isCompleted ? (
+                                <CheckCircle2 className="w-5 h-5 text-matcha-dark" />
+                              ) : (
+                                <Circle className="w-5 h-5" />
+                              )}
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <p
+                                className={`text-sm font-medium leading-snug break-words ${
+                                  isCompleted
+                                    ? "line-through text-mocha-muted"
+                                    : "text-mocha font-semibold"
+                                }`}
+                              >
+                                {reminder.taskTitle}
+                              </p>
+                              <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-mocha-muted">
+                                <span className="flex items-center gap-1 font-semibold text-matcha-dark">
+                                  <Clock className="w-3.5 h-3.5" />
+                                  {reminder.displayTime ||
+                                    formatInTimeZone(
+                                      new Date(reminder.remindAt),
+                                      "Asia/Bangkok",
+                                      "HH:mm"
+                                    )}{" "}
+                                  น.
+                                </span>
+                                {reminder.recurrence !== "NONE" && (
+                                  <span className="px-2 py-0.5 bg-sand rounded-full text-[10px] font-bold text-mocha">
+                                    {reminder.recurrence === "DAILY"
+                                      ? "ทุกวัน"
+                                      : reminder.recurrence === "WEEKLY"
+                                      ? "ทุกสัปดาห์"
+                                      : "ทุกเดือน"}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleEditClick(reminder)}
+                              className="p-1.5 text-mocha-muted hover:text-matcha-dark hover:bg-sand-light rounded-lg transition-colors"
+                              title="แก้ไข"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteReminder(reminder.id)}
+                              className="p-1.5 text-mocha-muted hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="ลบ"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

@@ -48,6 +48,7 @@ model User {
   notes          Note[]
   debts          Debt[]
   personProfiles PersonProfile[]
+  shifts         Shift[]
 
   @@map("users")
 }
@@ -130,6 +131,23 @@ model PersonProfile {
   @@unique([userId, name])
   @@index([userId])
   @@map("person_profiles")
+}
+
+model Shift {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      String   // "YYYY-MM-DD"
+  shiftType String   // "MORNING" | "AFTERNOON" | "NIGHT" | "OFF" | "CUSTOM"
+  title     String   // "เช้า", "บ่าย", "ดึก", "ออฟ" etc.
+  color     String   @default("#F97316") // Badge color
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@map("shifts")
 }
 
 

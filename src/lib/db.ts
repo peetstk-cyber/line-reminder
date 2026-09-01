@@ -76,6 +76,18 @@ export interface DbPersonProfile {
   updatedAt: string;
 }
 
+export interface DbShift {
+  id: string;
+  userId: string;
+  date: string; // "YYYY-MM-DD"
+  shiftType: string; // "MORNING" | "AFTERNOON" | "NIGHT" | "OFF" | "CUSTOM"
+  title: string;
+  color: string;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const db = {
   async ensureTablesExist(): Promise<void> {
     try {
@@ -135,6 +147,25 @@ export const db = {
       `;
       await sql`
         CREATE INDEX IF NOT EXISTS "person_profiles_userId_idx" ON "person_profiles"("userId");
+      `;
+
+      // 4. shifts table
+      await sql`
+        CREATE TABLE IF NOT EXISTS "shifts" (
+          "id" TEXT PRIMARY KEY,
+          "userId" TEXT NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+          "date" TEXT NOT NULL,
+          "shiftType" TEXT NOT NULL DEFAULT 'MORNING',
+          "title" TEXT NOT NULL,
+          "color" TEXT NOT NULL DEFAULT '#F97316',
+          "note" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "shifts_userId_date_unique" UNIQUE ("userId", "date")
+        );
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS "shifts_userId_date_idx" ON "shifts"("userId", "date");
       `;
     } catch (err) {
       console.error("Error ensuring tables exist:", err);
@@ -450,10 +481,11 @@ export const db = {
       ORDER BY "remindAt" ASC;
     `;
 
-    // Notes with incomplete items
+    // Notes with incomplete items (Only TODO category)
     const noteRows = await sql`
       SELECT * FROM "notes"
       WHERE "userId" = ${userId}
+        AND "category" = 'TODO'
       ORDER BY "isPinned" DESC, "updatedAt" DESC;
     `;
 
@@ -706,6 +738,65 @@ export const db = {
       LIMIT 1;
     `;
     return (rows[0] as DbPersonProfile) || null;
+  },
+
+  // ===================== SHIFTS METHODS =====================
+  async findShiftsByUserId(userId: string, yearMonth?: string): Promise<DbShift[]> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    if (yearMonth) {
+      const pattern = `${yearMonth}%`;
+      const rows = await sql`
+        SELECT * FROM "shifts"
+        WHERE "userId" = ${userId} AND "date" LIKE ${pattern}
+        ORDER BY "date" ASC;
+      `;
+      return rows as DbShift[];
+    }
+    const rows = await sql`
+      SELECT * FROM "shifts"
+      WHERE "userId" = ${userId}
+      ORDER BY "date" ASC;
+    `;
+    return rows as DbShift[];
+  },
+
+  async batchUpsertShifts(
+    userId: string,
+    shifts: { date: string; shiftType: string; title: string; color?: string; note?: string }[]
+  ): Promise<DbShift[]> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    const results: DbShift[] = [];
+
+    for (const shift of shifts) {
+      const color = shift.color || "#F97316";
+      const rows = await sql`
+        INSERT INTO "shifts" ("id", "userId", "date", "shiftType", "title", "color", "note")
+        VALUES (gen_random_uuid()::text, ${userId}, ${shift.date}, ${shift.shiftType}, ${shift.title}, ${color}, ${shift.note || null})
+        ON CONFLICT ("userId", "date") DO UPDATE SET
+          "shiftType" = EXCLUDED."shiftType",
+          "title" = EXCLUDED."title",
+          "color" = EXCLUDED."color",
+          "note" = EXCLUDED."note",
+          "updatedAt" = CURRENT_TIMESTAMP
+        RETURNING *;
+      `;
+      if (rows[0]) {
+        results.push(rows[0] as DbShift);
+      }
+    }
+    return results;
+  },
+
+  async deleteShiftByDate(userId: string, date: string): Promise<boolean> {
+    await this.ensureTablesExist();
+    const sql = getSql();
+    await sql`
+      DELETE FROM "shifts"
+      WHERE "userId" = ${userId} AND "date" = ${date};
+    `;
+    return true;
   },
 };
 
