@@ -56,11 +56,32 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const lineUserId = searchParams.get("lineUserId");
-    const date = searchParams.get("date");
+    let lineUserId = searchParams.get("lineUserId");
+    let date = searchParams.get("date");
+    let dates: string[] = [];
 
-    if (!lineUserId || !date) {
-      return NextResponse.json({ error: "lineUserId and date are required" }, { status: 400 });
+    // Check if json body is provided
+    try {
+      const body = await req.json();
+      if (body) {
+        if (body.lineUserId) lineUserId = body.lineUserId;
+        if (Array.isArray(body.dates)) dates = body.dates;
+        if (body.date && !dates.includes(body.date)) dates.push(body.date);
+      }
+    } catch (e) {
+      // Body is optional
+    }
+
+    if (date && !dates.includes(date)) {
+      dates.push(date);
+    }
+
+    if (!lineUserId) {
+      return NextResponse.json({ error: "lineUserId is required" }, { status: 400 });
+    }
+
+    if (dates.length === 0) {
+      return NextResponse.json({ error: "date or dates are required" }, { status: 400 });
     }
 
     const user = await db.findUserByLineId(lineUserId);
@@ -68,11 +89,11 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ status: "SUCCESS" });
     }
 
-    await db.deleteShiftByDate(user.id, date);
+    await db.batchDeleteShifts(user.id, dates);
 
     return NextResponse.json({ status: "SUCCESS" });
   } catch (err: any) {
-    console.error("Error deleting shift:", err);
-    return NextResponse.json({ error: "Failed to delete shift" }, { status: 500 });
+    console.error("Error deleting shifts:", err);
+    return NextResponse.json({ error: "Failed to delete shifts" }, { status: 500 });
   }
 }

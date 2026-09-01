@@ -457,12 +457,42 @@ export default function LiffDashboard() {
     );
   }
 
-  // Batch Save Multi-Selected Shifts
+  // Batch Save / Delete Multi-Selected Shifts
   async function handleSaveMultiShifts() {
     if (multiSelectedDates.length === 0 || !lineUserId || isSavingShifts) return;
 
     try {
       setIsSavingShifts(true);
+
+      // Handle Batch Deletion
+      if (selectedShiftType === "DELETE") {
+        // Optimistic delete
+        setShifts((prev) => {
+          const dateSet = new Set(multiSelectedDates);
+          const next = prev.filter((s) => !dateSet.has(s.date));
+          try {
+            localStorage.setItem("line_cached_shifts", JSON.stringify(next));
+          } catch (e) {}
+          return next;
+        });
+
+        const res = await fetch("/api/shifts", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lineUserId,
+            dates: multiSelectedDates,
+          }),
+        });
+
+        if (res.ok) {
+          setIsShiftModeActive(false);
+          setMultiSelectedDates([]);
+          fetchShifts();
+        }
+        return;
+      }
+
       const preset = SHIFT_PRESETS.find((p) => p.type === selectedShiftType);
       const title =
         selectedShiftType === "CUSTOM"
@@ -513,7 +543,7 @@ export default function LiffDashboard() {
         fetchShifts();
       }
     } catch (err) {
-      console.error("Failed to save shifts:", err);
+      console.error("Failed to save/delete shifts:", err);
     } finally {
       setIsSavingShifts(false);
     }
@@ -1452,7 +1482,7 @@ export default function LiffDashboard() {
                   <span className="text-[11px] font-bold text-mocha-muted uppercase tracking-wider">
                     เลือกประเภทเวรที่จะลง:
                   </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1.5">
                     {SHIFT_PRESETS.map((preset) => {
                       const isSelected = selectedShiftType === preset.type;
                       return (
@@ -1512,7 +1542,33 @@ export default function LiffDashboard() {
                           กำหนดเอง
                         </div>
                         <div className="text-[10px] text-mocha-muted leading-tight">
-                          เช่น ER, OR, Ward
+                          เช่น ER, OR
+                        </div>
+                      </div>
+                    </button>
+
+                    {/* Delete Shift Button */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedShiftType("DELETE")}
+                      className={`p-2 rounded-2xl border transition-all text-left flex flex-col justify-between ${
+                        selectedShiftType === "DELETE"
+                          ? "bg-rose-50 shadow-sm ring-2 ring-rose-500 border-rose-500 scale-[1.02]"
+                          : "bg-white/60 hover:bg-white border-sand/80 opacity-80 hover:opacity-100"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-base">🗑️</span>
+                        {selectedShiftType === "DELETE" && (
+                          <span className="w-2 h-2 rounded-full bg-rose-500" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="font-extrabold text-xs text-rose-700 leading-tight">
+                          ลบเวร
+                        </div>
+                        <div className="text-[10px] text-rose-600/80 leading-tight">
+                          ล้างเวรออก
                         </div>
                       </div>
                     </button>
@@ -1562,14 +1618,24 @@ export default function LiffDashboard() {
                       type="button"
                       disabled={multiSelectedDates.length === 0 || isSavingShifts}
                       onClick={handleSaveMultiShifts}
-                      className="px-4 py-2 bg-matcha-dark hover:bg-matcha text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      className={`px-4 py-2 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                        selectedShiftType === "DELETE"
+                          ? "bg-rose-600 hover:bg-rose-700"
+                          : "bg-matcha-dark hover:bg-matcha"
+                      }`}
                     >
                       {isSavingShifts ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : selectedShiftType === "DELETE" ? (
+                        <Trash2 className="w-4 h-4" />
                       ) : (
                         <Check className="w-4 h-4" />
                       )}
-                      <span>บันทึกเวร ({multiSelectedDates.length} วัน)</span>
+                      <span>
+                        {selectedShiftType === "DELETE"
+                          ? `ลบเวร (${multiSelectedDates.length} วัน)`
+                          : `บันทึกเวร (${multiSelectedDates.length} วัน)`}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -1790,9 +1856,35 @@ export default function LiffDashboard() {
             <div className="bg-white rounded-3xl p-4 sm:p-5 border border-sand shadow-sm space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-sand">
                 <div>
-                  <span className="text-[11px] font-semibold text-matcha-dark">
-                    รายการของวันที่
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-semibold text-matcha-dark">
+                      รายการของวันที่
+                    </span>
+                    {/* Compact Shift Tag with 1-click Delete */}
+                    {(() => {
+                      const currentShift = shifts.find((s) => s.date === selectedCalendarDate);
+                      if (!currentShift) return null;
+                      return (
+                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-sand/60 border border-sand shadow-2xs">
+                          <span
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: currentShift.color }}
+                          />
+                          <span className="text-[11px] font-extrabold text-mocha">
+                            เวร{currentShift.title}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSingleShift(selectedCalendarDate)}
+                            className="p-0.5 text-mocha-muted hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                            title="ลบเวรของวันนี้"
+                          >
+                            <Trash2 className="w-3 h-3 text-rose-500" />
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
                   <h3 className="text-sm sm:text-base font-bold text-mocha">
                     {formatThaiSelectedDate(selectedCalendarDate)}
                   </h3>

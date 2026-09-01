@@ -798,6 +798,17 @@ export const db = {
     `;
     return true;
   },
+
+  async batchDeleteShifts(userId: string, dates: string[]): Promise<boolean> {
+    if (!dates || dates.length === 0) return true;
+    await this.ensureTablesExist();
+    const sql = getSql();
+    await sql`
+      DELETE FROM "shifts"
+      WHERE "userId" = ${userId} AND "date" = ANY(${dates});
+    `;
+    return true;
+  },
 };
 
 
