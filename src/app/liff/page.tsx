@@ -1601,10 +1601,9 @@ export default function LiffDashboard() {
                           setMultiSelectedDates([selectedCalendarDate]);
                         }
                       }}
-                      className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 border border-amber-400/40 text-xs font-extrabold rounded-xl flex items-center gap-1.5 transition-all shadow-xs"
+                      className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 border border-amber-400/40 text-xs font-extrabold rounded-xl transition-all shadow-xs"
                     >
-                      <span>🩺</span>
-                      <span>ลงตารางเวร</span>
+                      เวร
                     </button>
                   )}
 
@@ -1668,7 +1667,7 @@ export default function LiffDashboard() {
                           setSelectedCalendarDate(cell.dateKey);
                         }
                       }}
-                      className={`min-h-[58px] sm:min-h-[64px] p-1 rounded-2xl flex flex-col items-center justify-between transition-all relative ${
+                      className={`min-h-[56px] sm:min-h-[62px] p-1.5 rounded-2xl flex flex-col items-center justify-between transition-all relative ${
                         isMultiSelected
                           ? "bg-amber-100/90 text-amber-950 font-bold border-2 border-amber-500 shadow-md scale-[1.03] z-10"
                           : cell.isSelected && !isShiftModeActive
@@ -1701,35 +1700,30 @@ export default function LiffDashboard() {
                         {cell.day}
                       </span>
 
-                      {/* Shift Badge (ตารางเวร) */}
+                      {/* Shift Thin Color Bar (แถบสีเวรบางๆ) */}
                       {dayShift ? (
                         <div
-                          className={`w-full text-center truncate px-0.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black leading-tight tracking-tight shadow-2xs mt-0.5 ${
-                            cell.isSelected && !isShiftModeActive
-                              ? "bg-white/20 text-white border border-white/40"
-                              : ""
-                          }`}
-                          style={
-                            cell.isSelected && !isShiftModeActive
-                              ? undefined
-                              : {
-                                  backgroundColor: `${dayShift.color}20`,
-                                  color: dayShift.color,
-                                  border: `1px solid ${dayShift.color}45`,
-                                }
-                          }
+                          className="w-full h-1.5 rounded-full my-0.5 transition-all shadow-2xs"
+                          style={{
+                            backgroundColor:
+                              cell.isSelected && !isShiftModeActive
+                                ? "#FFFFFF"
+                                : dayShift.color,
+                          }}
                           title={dayShift.title}
-                        >
-                          {dayShift.title}
-                        </div>
+                        />
                       ) : isMultiSelected ? (
-                        <div className="w-full text-center truncate px-0.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black leading-tight shadow-2xs mt-0.5 bg-amber-200 text-amber-900 border border-amber-400">
-                          {selectedShiftType === "CUSTOM"
-                            ? customShiftTitle.trim() || "เวร"
-                            : SHIFT_PRESETS.find((p) => p.type === selectedShiftType)?.title}
-                        </div>
+                        <div
+                          className="w-full h-1.5 rounded-full my-0.5 transition-all animate-pulse"
+                          style={{
+                            backgroundColor:
+                              selectedShiftType === "CUSTOM"
+                                ? customShiftColor
+                                : SHIFT_PRESETS.find((p) => p.type === selectedShiftType)?.color || "#F59E0B",
+                          }}
+                        />
                       ) : (
-                        <div className="min-h-[14px]" />
+                        <div className="w-full h-1.5 my-0.5" />
                       )}
 
                       {/* Reminder Event Dots (จุดการแจ้งเตือน) */}
@@ -1764,17 +1758,21 @@ export default function LiffDashboard() {
               <div className="mt-4 pt-3 border-t border-sand flex flex-wrap items-center justify-between gap-2 text-[11px] text-mocha-muted px-1">
                 <div className="flex flex-wrap items-center gap-3">
                   <div className="flex items-center gap-1.5">
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-100 text-orange-700 border border-orange-200">
-                      🌅 เช้า
+                    <span className="flex items-center gap-1 text-[10px] font-bold text-mocha">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#EA580C]" />
+                      เช้า
                     </span>
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-100 text-purple-700 border border-purple-200">
-                      🌇 บ่าย
+                    <span className="flex items-center gap-1 text-[10px] font-bold text-mocha">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#7C3AED]" />
+                      บ่าย
                     </span>
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-700 border border-blue-200">
-                      🌙 ดึก
+                    <span className="flex items-center gap-1 text-[10px] font-bold text-mocha">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#2563EB]" />
+                      ดึก
                     </span>
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
-                      🏖️ OFF
+                    <span className="flex items-center gap-1 text-[10px] font-bold text-mocha">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#059669]" />
+                      OFF
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -1783,7 +1781,7 @@ export default function LiffDashboard() {
                   </div>
                 </div>
                 <span className="text-[10px] text-mocha-muted/70">
-                  {isShiftModeActive ? "กำลังอยู่ในโหมดลงเวร" : "แตะวันที่เพื่อดูรายละเอียด"}
+                  {isShiftModeActive ? "กำลังอยู่ในโหมดลงเวร" : "แตะวันที่เพื่อดูงาน"}
                 </span>
               </div>
             </div>
@@ -1793,7 +1791,7 @@ export default function LiffDashboard() {
               <div className="flex items-center justify-between pb-3 border-b border-sand">
                 <div>
                   <span className="text-[11px] font-semibold text-matcha-dark">
-                    ข้อมูลประจำวันที่
+                    รายการของวันที่
                   </span>
                   <h3 className="text-sm sm:text-base font-bold text-mocha">
                     {formatThaiSelectedDate(selectedCalendarDate)}
@@ -1808,146 +1806,21 @@ export default function LiffDashboard() {
                   className="px-3 py-1.5 bg-matcha-subtle hover:bg-matcha-light text-matcha-dark font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-xs"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>เพิ่มแจ้งเตือนวันนี้</span>
+                  <span>เพิ่มงานวันนี้</span>
                 </button>
               </div>
 
-              {/* ------------------------------------------------------------- */}
-              {/* SUBSECTION 1: ตารางเวรของวันที่เลือก (Daily Shift Box) */}
-              {/* ------------------------------------------------------------- */}
-              {(() => {
-                const currentShift = shifts.find((s) => s.date === selectedCalendarDate);
-                const currentPreset = SHIFT_PRESETS.find(
-                  (p) => p.type === currentShift?.shiftType
-                );
-
-                if (currentShift) {
-                  return (
-                    <div
-                      className="p-3.5 sm:p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                      style={{
-                        backgroundColor: `${currentShift.color}10`,
-                        borderColor: `${currentShift.color}40`,
-                      }}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl sm:text-3xl">
-                          {currentPreset?.icon || "🩺"}
-                        </span>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] uppercase font-bold tracking-wider text-mocha-muted">
-                              ตารางเวรประจำวัน
-                            </span>
-                            <span
-                              className="px-2 py-0.5 rounded-full text-[10px] font-black text-white"
-                              style={{ backgroundColor: currentShift.color }}
-                            >
-                              {currentShift.title}
-                            </span>
-                          </div>
-                          <div className="text-sm sm:text-base font-black text-mocha mt-0.5">
-                            {currentPreset?.subtitle || currentShift.title}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Quick Change / Delete Buttons */}
-                      <div className="flex items-center gap-1.5 self-end sm:self-center">
-                        <div className="flex items-center gap-1 bg-white/80 p-1 rounded-xl border border-sand">
-                          {SHIFT_PRESETS.map((p) => (
-                            <button
-                              key={p.type}
-                              type="button"
-                              onClick={() =>
-                                handleSetSingleDayShift(
-                                  selectedCalendarDate,
-                                  p.type,
-                                  p.title,
-                                  p.color
-                                )
-                              }
-                              className={`px-2 py-1 rounded-lg text-xs font-bold transition-all ${
-                                currentShift.shiftType === p.type
-                                  ? "bg-matcha-dark text-white shadow-xs"
-                                  : "text-mocha-muted hover:text-mocha hover:bg-sand-light"
-                              }`}
-                              title={`เปลี่ยนเป็นเวร ${p.title}`}
-                            >
-                              {p.title}
-                            </button>
-                          ))}
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteSingleShift(selectedCalendarDate)}
-                          className="p-2 text-mocha-muted hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
-                          title="ลบเวรของวันนี้"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div className="p-3 sm:p-3.5 rounded-2xl border-2 border-dashed border-sand bg-sand-light/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">🩺</span>
-                      <div>
-                        <div className="text-xs font-bold text-mocha">
-                          ยังไม่ได้ลงเวรในวันนี้
-                        </div>
-                        <div className="text-[10px] text-mocha-muted">
-                          แตะเลือกเวรด้านขวาเพื่อลงเวรทันที
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {SHIFT_PRESETS.map((p) => (
-                        <button
-                          key={p.type}
-                          type="button"
-                          onClick={() =>
-                            handleSetSingleDayShift(
-                              selectedCalendarDate,
-                              p.type,
-                              p.title,
-                              p.color
-                            )
-                          }
-                          className="px-2.5 py-1 bg-white hover:bg-sand border border-sand rounded-xl text-xs font-bold text-mocha flex items-center gap-1 shadow-2xs transition-all hover:scale-105"
-                        >
-                          <span>{p.icon}</span>
-                          <span>{p.title}</span>
-                        </button>
-                      ))}
-                    </div>
+              {/* Reminders List for Selected Date */}
+              {selectedDayReminders.length === 0 ? (
+                <div className="py-8 text-center space-y-2">
+                  <div className="w-12 h-12 rounded-2xl bg-sand-light mx-auto flex items-center justify-center text-mocha-muted">
+                    <CalendarDays className="w-6 h-6 text-matcha-dark/60" />
                   </div>
-                );
-              })()}
-
-              {/* ------------------------------------------------------------- */}
-              {/* SUBSECTION 2: การแจ้งเตือนและนัดหมาย (Reminders List) */}
-              {/* ------------------------------------------------------------- */}
-              <div className="pt-2">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className="text-xs font-bold text-matcha-dark">⏰ นัดหมายและการแจ้งเตือน</span>
-                  <span className="text-[11px] text-mocha-muted">({selectedDayReminders.length} รายการ)</span>
+                  <p className="text-sm font-semibold text-mocha">ไม่มีการแจ้งเตือนในวันนี้ 🎉</p>
+                  <p className="text-xs text-mocha-muted">กดปุ่ม &quot;เพิ่มงานวันนี้&quot; เพื่อกำหนดเวลาแจ้งเตือน</p>
                 </div>
-
-                {selectedDayReminders.length === 0 ? (
-                  <div className="py-6 text-center space-y-1 bg-sand-light/20 rounded-2xl border border-sand/60">
-                    <p className="text-xs font-semibold text-mocha">ไม่มีการแจ้งเตือนในวันนี้ 🎉</p>
-                    <p className="text-[11px] text-mocha-muted">
-                      กดปุ่ม &quot;เพิ่มแจ้งเตือนวันนี้&quot; ด้านบนหากต้องการตั้งเตือน
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
+              ) : (
+                <div className="space-y-2 pt-1">
                     {selectedDayReminders.map((reminder) => {
                       const isCompleted = reminder.status === "COMPLETED";
                       return (
@@ -2026,7 +1899,6 @@ export default function LiffDashboard() {
                     })}
                   </div>
                 )}
-              </div>
             </div>
           </div>
         )}
