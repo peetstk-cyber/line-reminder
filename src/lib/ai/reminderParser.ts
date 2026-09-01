@@ -96,16 +96,111 @@ export function parseThaiReminderFastPath(
   const rawTrimmed = text.trim();
   const rawLower = rawTrimmed.toLowerCase();
 
-  // If message explicitly starts with a note/shopping/reading/phone prefix, do NOT treat as reminder fast-path
+  let cleanText = normalizeThaiTypos(rawTrimmed);
+
+  const thaiNumberWords: Record<string, number> = {
+    "หนึ่ง": 1,
+    "นึง": 1,
+    "สอง": 2,
+    "สาม": 3,
+    "สี่": 4,
+    "ห้า": 5,
+    "หก": 6,
+    "เจ็ด": 7,
+    "แปด": 8,
+    "เก้า": 9,
+    "สิบ": 10,
+    "สิบเอ็ด": 11,
+    "สิบห้า": 15,
+    "ยี่สิบ": 20,
+    "สามสิบ": 30,
+    "สี่สิบห้า": 45,
+  };
+
+  // -------------------------------------------------------------
+  // FAST PATH 0: Relative Time Phrases (เช่น "อีก10นาที", "อีก 10 นาที", "อีก 1 ชม", "อีกครึ่งชั่วโมง", "ในอีก 15 นาที")
+  // -------------------------------------------------------------
+  let relativeOffsetMinutes = -1;
+
+  // 0.1 อีกครึ่งชั่วโมง / อีกครึ่งชม
+  const halfHourMatch = cleanText.match(/(?:^|\s+)(?:ใน)?อีก\s*ครึ่ง\s*(?:ชั่วโมง|ชม\.?)(?:\s+|$)/i);
+  if (halfHourMatch) {
+    relativeOffsetMinutes = 30;
+    cleanText = cleanText.replace(halfHourMatch[0], " ");
+  }
+
+  // 0.2 อีก X ชั่วโมง / อีก X ชม [ครึ่ง / Y นาที] (e.g. "อีก1ชม", "อีก 2 ชั่วโมง", "อีก 1 ชมครึ่ง")
+  if (relativeOffsetMinutes === -1) {
+    const hourMatch = cleanText.match(
+      /(?:^|\s+)(?:ใน)?อีก\s*(\d+|หนึ่ง|นึง|สอง|สาม|สี่|ห้า|หก|เจ็ด|แปด|เก้า|สิบ)\s*(?:ชม\.?|ชั่วโมง)(?:\s*(ครึ่ง|(\d+)\s*นาที))?(?:\s+|$)/i
+    );
+    if (hourMatch) {
+      const rawH = hourMatch[1];
+      const hVal = thaiNumberWords[rawH] || parseInt(rawH, 10);
+      const extraMin = hourMatch[2] === "ครึ่ง" ? 30 : hourMatch[3] ? parseInt(hourMatch[3], 10) : 0;
+      relativeOffsetMinutes = hVal * 60 + extraMin;
+      cleanText = cleanText.replace(hourMatch[0], " ");
+    }
+  }
+
+  // 0.3 อีก X นาที (e.g. "อีก10นาที", "อีก 10 นาที", "ในอีก 5 นาที", "อีก 45 นาที")
+  if (relativeOffsetMinutes === -1) {
+    const minMatch = cleanText.match(
+      /(?:^|\s+)(?:ใน)?อีก\s*(\d+|หนึ่ง|นึง|สอง|สาม|สี่|ห้า|หก|เจ็ด|แปด|เก้า|สิบ|สิบห้า|ยี่สิบ|สามสิบ|สี่สิบห้า)\s*นาที(?:\s+|$)/i
+    );
+    if (minMatch) {
+      const rawM = minMatch[1];
+      relativeOffsetMinutes = thaiNumberWords[rawM] || parseInt(rawM, 10);
+      cleanText = cleanText.replace(minMatch[0], " ");
+    }
+  }
+
+  // If relative time was found, calculate target time and return immediately!
+  if (relativeOffsetMinutes > 0) {
+    const targetDate = new Date(baseDate.getTime() + relativeOffsetMinutes * 60 * 1000);
+    const targetDay = formatInTimeZone(targetDate, timezone, "yyyy-MM-dd");
+    const baseDay = formatInTimeZone(baseDate, timezone, "yyyy-MM-dd");
+
+    let dateStr = "วันนี้";
+    if (targetDay !== baseDay) {
+      dateStr = formatInTimeZone(targetDate, timezone, "d MMM");
+    }
+
+    const timeStr = formatInTimeZone(targetDate, timezone, "HH:mm น.");
+    const remindAtISO = formatInTimeZone(targetDate, timezone, "yyyy-MM-dd'T'HH:mm:ssXXX");
+
+    let taskTitle = cleanText
+      .replace(/^(?:เตือน|ช่วยเตือน|เตือนว่า|ช่วยเตือนว่า|ตั้งเตือน|แจ้งเตือน)\s*/, "")
+      .replace(/(?:^|\s+)(?:ตอน|ช่วง|เวลา)?\s*$/, "")
+      .trim();
+    taskTitle = taskTitle
+      .replace(/^[\u0E31\u0E34-\u0E3A\s]+|[\u0E31\u0E34-\u0E3A\s]+$/g, "")
+      .trim();
+    taskTitle = taskTitle.replace(/\s+/g, " ").trim();
+
+    if (!taskTitle) {
+      taskTitle = "เตือนความจำ";
+    }
+
+    return {
+      type: "REMINDER",
+      reminderAction: "CREATE",
+      taskTitle,
+      remindAtISO,
+      displayDate: dateStr,
+      displayTime: timeStr,
+      recurrence: "NONE",
+    };
+  }
+
+  // If message explicitly starts with a note/shopping/phone prefix (and had no relative time), do NOT treat as reminder fast-path
   if (
-    /^(?:จดงาน|จด|o\s|o:|๐\s|todo|to-do|สิ่งที่ต้องทำ|งาน|ซื้อของ|ซื้อ|ช้อปปิ้ง|รายการซื้อ|อ่านหนังสือ|อ่านว่า|อ่าน|ทบทวน|reading|read|book|หนังสือ|โน้ต|โน๊ต|บันทึก|เบอร์|โทร|contact|phone)/i.test(
+    /^(?:จดงาน|จด|o\s|o:|๐\s|todo|to-do|สิ่งที่ต้องทำ|งาน|ซื้อของ|ซื้อ|ช้อปปิ้ง|รายการซื้อ|อ่านหนังสือ|อ่านว่า|ทบทวน|reading|read|book|หนังสือ|โน้ต|โน๊ต|บันทึก|เบอร์|โทร|contact|phone)/i.test(
       rawLower
     )
   ) {
     return null;
   }
-
-  let cleanText = normalizeThaiTypos(rawTrimmed);
 
   // 1. Date extraction
   let dateOffset = 0; // 0 = today, 1 = tomorrow, 2 = day after tomorrow
@@ -306,7 +401,7 @@ export function parseThaiReminderFastPath(
     .replace(/^(?:เตือน|ช่วยเตือน|เตือนว่า|ช่วยเตือนว่า|ตั้งเตือน|แจ้งเตือน)\s*/, "")
     .trim();
   taskTitle = taskTitle
-    .replace(/^[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E\s]+|[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E\s]+$/g, "")
+    .replace(/^[\u0E31\u0E34-\u0E3A\s]+|[\u0E31\u0E34-\u0E3A\s]+$/g, "")
     .trim();
   taskTitle = taskTitle.replace(/\s+/g, " ").trim();
 
@@ -674,6 +769,11 @@ export async function parseAssistantIntent(
      * เมื่อขึ้นต้นด้วย: "โน้ต", "โน๊ต", "บันทึก" หรือบันทึกเบอร์โทร
 
 3. type: "REMINDER" (การตั้งเตือนความจำที่มีกิจกรรมและเวลา)
+   - รองรับเวลานับถอยหลัง / เวลาสัมพัทธ์ (Relative Time):
+     * "อ่านแคล อีก10นาที" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "อ่านแคล", remindAtISO: (เวลาปัจจุบัน + 10 นาที)
+     * "กินยา อีก 5 นาที" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "กินยา", remindAtISO: (เวลาปัจจุบัน + 5 นาที)
+     * "ประชุม อีก 1 ชม" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "ประชุม", remindAtISO: (เวลาปัจจุบัน + 1 ชั่วโมง)
+     * "พักผ่อน อีกครึ่งชั่วโมง" -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "พักผ่อน", remindAtISO: (เวลาปัจจุบัน + 30 นาที)
    - ข้อควรระวังเรื่องคำว่า เช้า/บ่าย/เย็น ในชื่อกิจกรรม:
      * หากเป็นคำประสมหรือคำทั่วไป เช่น "สลับเวรเช้าบ่าย", "อาหารเช้า", "เวรบ่าย" โดยไม่ได้มีเจตนาบอกเวลาแยกต่างหาก (ไม่ได้เว้นวรรคบอกเวลา หรือไม่ได้ระบุเวลาชัดเจน) อย่าตีความเป็นเวลา
      * ตัวอย่าง: "สลับเวรเช้าบ่าย เที่ยง" -> มีการเว้นวรรคระบุเวลา "เที่ยง" ชัดเจน -> type: "REMINDER", reminderAction: "CREATE", taskTitle: "สลับเวรเช้าบ่าย", displayTime: "12:00 น.", remindAtISO: (เวลา 12:00:00 น.)
