@@ -74,10 +74,10 @@ export const SHIFT_PRESETS = [
     title: "บ่าย",
     subtitle: "16:00 - 24:00",
     icon: "🌇",
-    color: "#7C3AED",
-    bgLight: "#F5F3FF",
-    border: "#C4B5FD",
-    text: "#6D28D9",
+    color: "#DB2777",
+    bgLight: "#FDF2F8",
+    border: "#F472B6",
+    text: "#BE185D",
   },
   {
     type: "NIGHT",
@@ -1718,7 +1718,7 @@ export default function LiffDashboard() {
                             backgroundColor:
                               cell.isSelected && !isShiftModeActive
                                 ? "#FFFFFF"
-                                : dayShift.color,
+                                : SHIFT_PRESETS.find((p) => p.type === dayShift.shiftType)?.color || dayShift.color,
                           }}
                           title={dayShift.title}
                         />
@@ -1773,7 +1773,7 @@ export default function LiffDashboard() {
                       เช้า
                     </span>
                     <span className="flex items-center gap-1 text-[10px] font-bold text-mocha">
-                      <span className="w-2.5 h-2.5 rounded-full bg-[#7C3AED]" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#DB2777]" />
                       บ่าย
                     </span>
                     <span className="flex items-center gap-1 text-[10px] font-bold text-mocha">
@@ -1808,11 +1808,14 @@ export default function LiffDashboard() {
                     {(() => {
                       const currentShift = shifts.find((s) => s.date === selectedCalendarDate);
                       if (!currentShift) return null;
+                      const shiftColor =
+                        SHIFT_PRESETS.find((p) => p.type === currentShift.shiftType)?.color ||
+                        currentShift.color;
                       return (
                         <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-sand/60 border border-sand shadow-2xs">
                           <span
                             className="w-2 h-2 rounded-full"
-                            style={{ backgroundColor: currentShift.color }}
+                            style={{ backgroundColor: shiftColor }}
                           />
                           <span className="text-[11px] font-extrabold text-mocha">
                             เวร{currentShift.title}
